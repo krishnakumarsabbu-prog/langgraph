@@ -441,11 +441,11 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
     return createPortal(
       <div className="fixed inset-0 bg-black bg-opacity-70 z-[99999]">
         <div className="bg-white w-full h-full flex flex-col">
-          <div className="bg-[#D71E28] text-white px-8 py-6 flex items-center justify-between">
+          <div className="bg-gray-900 text-white px-8 py-6 flex items-center justify-between border-b border-gray-700">
             <h2 className="text-2xl font-bold">Form: {pausedFormNode.data?.label || pausedFormNode.id}</h2>
             <button
               onClick={() => setShowFormModal(false)}
-              className="p-1 hover:bg-[#BB1A21] rounded transition-colors"
+              className="p-1 hover:bg-gray-800 rounded transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -453,9 +453,9 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
 
           <div className="flex-1 overflow-y-auto bg-gray-50">
             <div className="max-w-4xl mx-auto p-8">
-              <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-8">
+              <div className="bg-white rounded-lg shadow-lg border border-gray-300 p-8">
                 <div className="mb-6">
-                  <h3 className="text-2xl font-bold text-[#D71E28] mb-2">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">
                     {formSchema.title || 'Workflow Form'}
                   </h3>
                   <p className="text-sm text-gray-600">
@@ -482,7 +482,7 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
                       </Button>
                       <Button
                         type="submit"
-                        className="bg-[#D71E28] hover:bg-[#BB1A21] text-white px-6 py-2"
+                        className="bg-gray-900 hover:bg-gray-800 text-white px-6 py-2"
                         disabled={isLoading}
                       >
                         {isLoading ? (
@@ -538,8 +538,8 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
 
           .form-container .form-control:focus {
             outline: none;
-            border-color: #D71E28;
-            box-shadow: 0 0 0 3px rgba(215, 30, 40, 0.1);
+            border-color: #374151;
+            box-shadow: 0 0 0 3px rgba(55, 65, 81, 0.1);
           }
 
           .form-container select.form-control {
@@ -563,7 +563,7 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
             border: 1px solid #d1d5db;
             border-radius: 0.25rem;
             cursor: pointer;
-            accent-color: #D71E28;
+            accent-color: #374151;
           }
 
           .form-container textarea.form-control {
@@ -579,26 +579,26 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
   const modalContent = (
     <div className="fixed inset-0 bg-black bg-opacity-70 z-[9999]">
       <div className="bg-white w-full h-full flex flex-col">
-        <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-8 py-6 flex items-center justify-between border-b-2 border-green-700">
+        <div className="bg-gray-900 text-white px-8 py-6 flex items-center justify-between border-b border-gray-700">
           <div>
             <h2 className="text-2xl font-bold">Execute Workflow with Forms</h2>
-            <p className="text-sm opacity-90 mt-1">
+            <p className="text-sm text-gray-400 mt-1">
               {isPaused ? 'Workflow paused - Click form node to continue' : 'Run and visualize workflow execution'}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-green-700 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
           >
             <X className="w-6 h-6" />
           </button>
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
+        <div className="flex-1 flex flex-col overflow-hidden p-4 gap-4 bg-gray-100">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 flex-1 min-h-0">
-            <Card className="flex flex-col overflow-hidden">
+            <Card className="flex flex-col overflow-hidden border border-gray-300">
               <div
-                className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-blue-500 to-blue-600 text-white cursor-pointer"
+                className="flex items-center justify-between p-4 border-b border-gray-300 bg-gray-800 text-white cursor-pointer"
                 onClick={() => togglePanel('input')}
               >
                 <div className="flex items-center gap-2">
@@ -620,13 +620,13 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
               )}
             </Card>
 
-            <Card className="lg:col-span-2 flex flex-col overflow-hidden">
-              <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-purple-500 to-purple-600 text-white">
+            <Card className="lg:col-span-2 flex flex-col overflow-hidden border border-gray-300">
+              <div className="flex items-center justify-between p-4 border-b border-gray-300 bg-gray-800 text-white">
                 <div className="flex items-center gap-2">
                   <Activity className="w-5 h-5" />
                   <h3 className="font-semibold">Flow Graph</h3>
                   {isPaused && (
-                    <span className="px-2 py-0.5 text-xs font-medium bg-orange-500 rounded-full flex items-center gap-1">
+                    <span className="px-2 py-0.5 text-xs font-medium bg-yellow-500 text-gray-900 rounded-full flex items-center gap-1">
                       <Pause className="w-3 h-3" />
                       PAUSED
                     </span>
@@ -683,9 +683,9 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
               </div>
             </Card>
 
-            <Card className="flex flex-col overflow-hidden">
+            <Card className="flex flex-col overflow-hidden border border-gray-300">
               <div
-                className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-green-500 to-green-600 text-white cursor-pointer"
+                className="flex items-center justify-between p-4 border-b border-gray-300 bg-gray-800 text-white cursor-pointer"
                 onClick={() => togglePanel('output')}
               >
                 <div className="flex items-center gap-2">
@@ -704,16 +704,16 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
             </Card>
           </div>
 
-          <Card className="flex flex-col overflow-hidden max-h-[400px]">
+          <Card className="flex flex-col overflow-hidden max-h-[400px] border border-gray-300">
             <div
-              className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-orange-500 to-orange-600 text-white cursor-pointer"
+              className="flex items-center justify-between p-4 border-b border-gray-300 bg-gray-800 text-white cursor-pointer"
               onClick={() => togglePanel('logs')}
             >
               <div className="flex items-center gap-2">
                 <Activity className="w-5 h-5" />
                 <h3 className="font-semibold">Node Details</h3>
                 {selectedNode && (
-                  <span className="px-2 py-0.5 text-xs font-medium bg-white/20 rounded-full">
+                  <span className="px-2 py-0.5 text-xs font-medium bg-gray-700 rounded-full">
                     {selectedNode.label}
                   </span>
                 )}
@@ -755,17 +755,17 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
                     </div>
 
                     {selectedNode.nodeType === 'form' && selectedNode.status === 'paused' && (
-                      <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                      <div className="p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
                         <div className="flex items-start gap-2">
-                          <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+                          <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                           <div>
-                            <div className="font-semibold text-orange-700 mb-1">Action Required</div>
-                            <div className="text-sm text-orange-600 mb-3">
+                            <div className="font-semibold text-gray-900 mb-1">Action Required</div>
+                            <div className="text-sm text-gray-700 mb-3">
                               This workflow is paused waiting for form input. Click this node to open and fill the form.
                             </div>
                             <Button
                               onClick={() => setShowFormModal(true)}
-                              className="bg-orange-600 hover:bg-orange-700 text-white"
+                              className="bg-gray-900 hover:bg-gray-800 text-white"
                             >
                               Open Form
                             </Button>
@@ -807,14 +807,14 @@ export const WorkflowExecutionWithForms: React.FC<WorkflowExecutionWithFormsProp
           </Card>
         </div>
 
-        <div className="border-t border-gray-200 px-8 py-4 flex justify-between items-center bg-gray-50">
-          <Button variant="outline" onClick={onClose} className="px-6 py-2">
+        <div className="border-t border-gray-300 px-8 py-4 flex justify-between items-center bg-white">
+          <Button variant="outline" onClick={onClose} className="px-6 py-2 border-gray-300">
             Close
           </Button>
           <Button
             onClick={handleExecute}
             disabled={isLoading || isPaused}
-            className="bg-green-600 hover:bg-green-700 text-white px-8 py-2"
+            className="bg-gray-900 hover:bg-gray-800 text-white px-8 py-2"
           >
             {isLoading ? (
               <>
