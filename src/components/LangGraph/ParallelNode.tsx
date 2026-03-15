@@ -20,14 +20,14 @@ export const ParallelNode: React.FC<ParallelNodeProps> = ({ id, data, selected }
     >
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         className="w-3 h-3 bg-gray-400"
       />
 
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 mb-1">
-          <div className="w-8 h-8 rounded bg-yellow-100 flex items-center justify-center flex-shrink-0">
-            <GitBranch className="w-4 h-4 text-yellow-600" />
+          <div className="w-8 h-8 rounded bg-amber-50 flex items-center justify-center flex-shrink-0 border border-amber-200">
+            <GitBranch className="w-4 h-4 text-amber-600" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="font-medium text-sm text-gray-900 truncate">{data.label}</div>
@@ -38,8 +38,17 @@ export const ParallelNode: React.FC<ParallelNodeProps> = ({ id, data, selected }
 
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
+        id="right"
         className="w-3 h-3 bg-gray-400"
+        style={{ top: '30%' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right-2"
+        className="w-3 h-3 bg-gray-400"
+        style={{ top: '70%' }}
       />
     </div>
   );

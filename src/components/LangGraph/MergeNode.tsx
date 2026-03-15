@@ -20,14 +20,23 @@ export const MergeNode: React.FC<MergeNodeProps> = ({ id, data, selected }) => {
     >
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
+        id="left"
         className="w-3 h-3 bg-gray-400"
+        style={{ top: '30%' }}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left-2"
+        className="w-3 h-3 bg-gray-400"
+        style={{ top: '70%' }}
       />
 
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 mb-1">
-          <div className="w-8 h-8 rounded bg-purple-100 flex items-center justify-center flex-shrink-0">
-            <GitMerge className="w-4 h-4 text-purple-600" />
+          <div className="w-8 h-8 rounded bg-slate-50 flex items-center justify-center flex-shrink-0 border border-slate-200">
+            <GitMerge className="w-4 h-4 text-slate-600" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="font-medium text-sm text-gray-900 truncate">{data.label}</div>
@@ -38,7 +47,7 @@ export const MergeNode: React.FC<MergeNodeProps> = ({ id, data, selected }) => {
 
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         className="w-3 h-3 bg-gray-400"
       />
     </div>
