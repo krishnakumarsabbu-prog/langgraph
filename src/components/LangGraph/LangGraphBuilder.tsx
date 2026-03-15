@@ -8,9 +8,11 @@ import { DecisionNode } from './DecisionNode';
 import { LLMNode } from './LLMNode';
 import { FormNode } from './FormNode';
 import { WorkflowNode } from './WorkflowNode';
+import { ParallelNode } from './ParallelNode';
+import { MergeNode } from './MergeNode';
 import { CustomEdge } from './CustomEdge';
 import { Button } from '../ui/button';
-import { Settings, Trash2, GitBranch, Code, Save, Upload, Play, Maximize2, Minimize2, ArrowLeft, Workflow, X, Globe, Bot, FileText, RefreshCw, ExternalLink, Eye, Pencil, CheckCircle, XCircle, Loader2, Terminal } from 'lucide-react';
+import { Settings, Trash2, GitBranch, Code, Save, Upload, Play, Maximize2, Minimize2, ArrowLeft, Workflow, X, Globe, Bot, FileText, RefreshCw, ExternalLink, Eye, Pencil, CheckCircle, XCircle, Loader2, Terminal, GitMerge } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { WorkflowExecuteModal } from './WorkflowExecuteModal';
 import { WorkflowExecutionWithForms } from './WorkflowExecutionWithForms';
@@ -26,6 +28,8 @@ const nodeTypes = {
   llmNode: LLMNode,
   formNode: FormNode,
   workflowNode: WorkflowNode,
+  parallelNode: ParallelNode,
+  mergeNode: MergeNode,
 };
 
 const edgeTypes = {
@@ -79,6 +83,8 @@ export const LangGraphBuilder: React.FC = () => {
     addLLMNode,
     addFormNode,
     addWorkflowNode,
+    addParallelNode,
+    addMergeNode,
     clearCanvas,
     exportJSON,
     importJSON,
@@ -251,10 +257,18 @@ export const LangGraphBuilder: React.FC = () => {
           addWorkflowNode(position);
           toast.success('Workflow node added');
           break;
+        case 'parallelNode':
+          addParallelNode(position);
+          toast.success('Parallel node added');
+          break;
+        case 'mergeNode':
+          addMergeNode(position);
+          toast.success('Merge node added');
+          break;
       }
       setActiveTab('config');
     },
-    [reactFlowInstance, addServiceNode, addDecisionNode, addLLMNode, addFormNode, addWorkflowNode]
+    [reactFlowInstance, addServiceNode, addDecisionNode, addLLMNode, addFormNode, addWorkflowNode, addParallelNode, addMergeNode]
   );
 
   const handleClearCanvas = () => {
@@ -440,6 +454,9 @@ export const LangGraphBuilder: React.FC = () => {
           errors.push('Workflow selection is required');
         }
         break;
+      case 'parallelNode':
+      case 'mergeNode':
+        break;
     }
 
     return { valid: errors.length === 0, errors };
@@ -537,6 +554,14 @@ export const LangGraphBuilder: React.FC = () => {
     const nodeData = selectedNode.data as any;
 
     switch (selectedNode.type) {
+      case 'parallelNode':
+      case 'mergeNode':
+        return (
+          <div className="text-xs text-gray-500 text-center py-6">
+            This node has no additional configuration options.
+          </div>
+        );
+
       case 'serviceNode':
         return (
           <div className="space-y-4">
@@ -705,6 +730,14 @@ export const LangGraphBuilder: React.FC = () => {
     const nodeData = selectedNode.data as any;
 
     switch (selectedNode.type) {
+      case 'parallelNode':
+      case 'mergeNode':
+        return (
+          <div className="text-xs text-gray-500">
+            This node type has no advanced configuration options.
+          </div>
+        );
+
       case 'serviceNode':
         return (
           <div className="space-y-4">
@@ -905,6 +938,8 @@ export const LangGraphBuilder: React.FC = () => {
       case 'llmNode': return 'LLM Node';
       case 'formNode': return 'Form Node';
       case 'workflowNode': return 'Workflow Node';
+      case 'parallelNode': return 'Parallel Node';
+      case 'mergeNode': return 'Merge Node';
       default: return 'Node';
     }
   };
@@ -916,6 +951,8 @@ export const LangGraphBuilder: React.FC = () => {
       case 'llmNode': return <Bot className="w-4 h-4" />;
       case 'formNode': return <FileText className="w-4 h-4" />;
       case 'workflowNode': return <Workflow className="w-4 h-4" />;
+      case 'parallelNode': return <GitBranch className="w-4 h-4" />;
+      case 'mergeNode': return <GitMerge className="w-4 h-4" />;
       default: return null;
     }
   };
@@ -1144,6 +1181,22 @@ export const LangGraphBuilder: React.FC = () => {
                     >
                       <Workflow className="w-4 h-4 text-gray-600" />
                       <span className="text-sm text-gray-700">Workflow</span>
+                    </div>
+                    <div
+                      draggable
+                      onDragStart={(e) => onDragStart(e, 'parallelNode')}
+                      className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded cursor-grab active:cursor-grabbing transition-colors"
+                    >
+                      <GitBranch className="w-4 h-4 text-gray-600" />
+                      <span className="text-sm text-gray-700">Parallel</span>
+                    </div>
+                    <div
+                      draggable
+                      onDragStart={(e) => onDragStart(e, 'mergeNode')}
+                      className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded cursor-grab active:cursor-grabbing transition-colors"
+                    >
+                      <GitMerge className="w-4 h-4 text-gray-600" />
+                      <span className="text-sm text-gray-700">Merge</span>
                     </div>
                   </div>
                 </div>

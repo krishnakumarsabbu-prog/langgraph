@@ -37,7 +37,15 @@ export interface WorkflowNodeData {
   };
 }
 
-export type NodeData = ServiceNodeData | DecisionNodeData | LLMNodeData | FormNodeData | WorkflowNodeData;
+export interface ParallelNodeData {
+  label: string;
+}
+
+export interface MergeNodeData {
+  label: string;
+}
+
+export type NodeData = ServiceNodeData | DecisionNodeData | LLMNodeData | FormNodeData | WorkflowNodeData | ParallelNodeData | MergeNodeData;
 
 export interface LangGraphEdge extends Edge {
   data?: {
@@ -72,6 +80,8 @@ interface LangGraphState {
   addLLMNode: (position: { x: number; y: number }) => string;
   addFormNode: (position: { x: number; y: number }) => string;
   addWorkflowNode: (position: { x: number; y: number }) => string;
+  addParallelNode: (position: { x: number; y: number }) => string;
+  addMergeNode: (position: { x: number; y: number }) => string;
   updateNodeData: (nodeId: string, data: Partial<NodeData>) => void;
   deleteNode: (nodeId: string) => void;
   updateEdgeCondition: (edgeId: string, condition: string) => void;
@@ -209,6 +219,34 @@ export const useLangGraphStore = create<LangGraphState>((set, get) => ({
     return id;
   },
 
+  addParallelNode: (position) => {
+    const id = `parallel-${nodeIdCounter++}`;
+    const newNode: Node<ParallelNodeData> = {
+      id,
+      type: 'parallelNode',
+      position,
+      data: {
+        label: id,
+      },
+    };
+    set({ nodes: [...get().nodes, newNode], selectedNodeId: id });
+    return id;
+  },
+
+  addMergeNode: (position) => {
+    const id = `merge-${nodeIdCounter++}`;
+    const newNode: Node<MergeNodeData> = {
+      id,
+      type: 'mergeNode',
+      position,
+      data: {
+        label: id,
+      },
+    };
+    set({ nodes: [...get().nodes, newNode], selectedNodeId: id });
+    return id;
+  },
+
   updateNodeData: (nodeId, data) => {
     set({
       nodes: get().nodes.map((node) =>
@@ -274,6 +312,8 @@ export const useLangGraphStore = create<LangGraphState>((set, get) => ({
           else if (node.type === 'formNode') type = 'form';
           else if (node.type === 'workflowNode') type = 'workflow';
           else if (node.type === 'llmNode') type = 'llm';
+          else if (node.type === 'parallelNode') type = 'parallel';
+          else if (node.type === 'mergeNode') type = 'merge';
 
           return {
             id: node.id,
@@ -304,6 +344,8 @@ export const useLangGraphStore = create<LangGraphState>((set, get) => ({
         else if (node.type === 'form') nodeType = 'formNode';
         else if (node.type === 'workflow') nodeType = 'workflowNode';
         else if (node.type === 'llm') nodeType = 'llmNode';
+        else if (node.type === 'parallel') nodeType = 'parallelNode';
+        else if (node.type === 'merge') nodeType = 'mergeNode';
 
         return {
           id: node.id,
