@@ -1,13 +1,18 @@
 import axios from 'axios';
+import { generateMockData, generateMockNodeExecutions } from '../utils/mockDataGenerator';
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8000';
+const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 5000,
 });
+
+let mockData = generateMockData();
 
 export interface WorkflowExecution {
   id: string;
@@ -89,15 +94,25 @@ export interface WorkflowPerformance {
   last_executed: string;
 }
 
+const withMockFallback = async <T>(
+  apiCall: () => Promise<T>,
+  mockData: T
+): Promise<T> => {
+  if (USE_MOCK_DATA) {
+    return mockData;
+  }
+
+  try {
+    return await apiCall();
+  } catch (error) {
+    console.warn('Backend API unavailable, using mock data:', error);
+    return mockData;
+  }
+};
+
 export const metricsService = {
   async getMetricsSummary(): Promise<MetricsSummary> {
-    try {
-      const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
-      const { data: workflows } = await api.get('/api/flows');
-
-      const executionList = Array.isArray(executions) ? executions : [];
-      const workflowList = Array.isArray(workflows) ? workflows : [];
-
+    const calculateSummary = (executionList: any[], workflowList: any[]) => {
       const totalExecutions = executionList.length;
       const successfulExecutions = executionList.filter((e: any) => e.status === 'completed').length;
       const failedExecutions = executionList.filter((e: any) => e.status === 'failed').length;
@@ -120,24 +135,22 @@ export const metricsService = {
         avgExecutionTime,
         totalWorkflows: workflowList.length,
       };
-    } catch (error) {
-      console.error('Error fetching metrics summary:', error);
-      return {
-        totalExecutions: 0,
-        successfulExecutions: 0,
-        failedExecutions: 0,
-        runningExecutions: 0,
-        avgExecutionTime: 0,
-        totalWorkflows: 0,
-      };
-    }
+    };
+
+    return withMockFallback(
+      async () => {
+        const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
+        const { data: workflows } = await api.get('/api/flows');
+        const executionList = Array.isArray(executions) ? executions : [];
+        const workflowList = Array.isArray(workflows) ? workflows : [];
+        return calculateSummary(executionList, workflowList);
+      },
+      calculateSummary(mockData.executions, mockData.workflows)
+    );
   },
 
   async getExecutionTrends(days: number = 7): Promise<ExecutionTrend[]> {
-    try {
-      const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
-      const executionList = Array.isArray(executions) ? executions : [];
-
+    const calculateTrends = (executionList: any[]) => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
@@ -161,17 +174,20 @@ export const metricsService = {
       return Array.from(trendMap.entries())
         .map(([date, stats]) => ({ date, ...stats }))
         .sort((a, b) => a.date.localeCompare(b.date));
-    } catch (error) {
-      console.error('Error fetching execution trends:', error);
-      return [];
-    }
+    };
+
+    return withMockFallback(
+      async () => {
+        const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
+        const executionList = Array.isArray(executions) ? executions : [];
+        return calculateTrends(executionList);
+      },
+      calculateTrends(mockData.executions)
+    );
   },
 
   async getWorkflowPerformance(): Promise<WorkflowPerformance[]> {
-    try {
-      const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
-      const executionList = Array.isArray(executions) ? executions : [];
-
+    const calculatePerformance = (executionList: any[]) => {
       const performanceMap = new Map<
         string,
         {
@@ -214,77 +230,85 @@ export const metricsService = {
             : 0,
         last_executed: stats.lastExecuted,
       }));
-    } catch (error) {
-      console.error('Error fetching workflow performance:', error);
-      return [];
-    }
+    };
+
+    return withMockFallback(
+      async () => {
+        const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
+        const executionList = Array.isArray(executions) ? executions : [];
+        return calculatePerformance(executionList);
+      },
+      calculatePerformance(mockData.executions)
+    );
   },
 
   async getRecentExecutions(limit: number = 50): Promise<WorkflowExecution[]> {
-    try {
-      const { data } = await api.get('/executions', { params: { limit } });
-      return Array.isArray(data) ? data : [];
-    } catch (error) {
-      console.error('Error fetching recent executions:', error);
-      return [];
-    }
+    return withMockFallback(
+      async () => {
+        const { data } = await api.get('/executions', { params: { limit } });
+        return Array.isArray(data) ? data : [];
+      },
+      mockData.executions.slice(0, limit)
+    );
   },
 
   async getExecutionDetails(executionId: string): Promise<{
     execution: WorkflowExecution;
     nodeExecutions: NodeExecution[];
   }> {
-    try {
-      const { data: execution } = await api.get(`/executions/${executionId}`);
-      const { data: nodeExecutions } = await api.get(`/executions/${executionId}/nodes`);
-
-      return {
-        execution,
-        nodeExecutions: Array.isArray(nodeExecutions) ? nodeExecutions : [],
-      };
-    } catch (error) {
-      console.error('Error fetching execution details:', error);
-      throw error;
-    }
+    return withMockFallback(
+      async () => {
+        const { data: execution } = await api.get(`/executions/${executionId}`);
+        const { data: nodeExecutions } = await api.get(`/executions/${executionId}/nodes`);
+        return {
+          execution,
+          nodeExecutions: Array.isArray(nodeExecutions) ? nodeExecutions : [],
+        };
+      },
+      {
+        execution: mockData.executions.find(e => e.id === executionId) || mockData.executions[0],
+        nodeExecutions: generateMockNodeExecutions(executionId, 8),
+      }
+    );
   },
 
   async getServiceMetrics(): Promise<ServiceMetrics[]> {
-    try {
-      const { data } = await api.get('/metrics/service/all');
-      return Array.isArray(data) ? data : [];
-    } catch (error) {
-      console.error('Error fetching service metrics:', error);
-      return [];
-    }
+    return withMockFallback(
+      async () => {
+        const { data } = await api.get('/metrics/service/all');
+        return Array.isArray(data) ? data : [];
+      },
+      mockData.serviceMetrics
+    );
   },
 
   async getWorkflows(): Promise<Workflow[]> {
-    try {
-      const { data } = await api.get('/api/flows');
-      return Array.isArray(data) ? data : [];
-    } catch (error) {
-      console.error('Error fetching workflows:', error);
-      return [];
-    }
+    return withMockFallback(
+      async () => {
+        const { data } = await api.get('/api/flows');
+        return Array.isArray(data) ? data : [];
+      },
+      mockData.workflows
+    );
   },
 
   async getWorkflowVersions(workflowName: string): Promise<Workflow[]> {
-    try {
-      const { data } = await api.get(`/api/flows/${workflowName}/versions`);
-      return Array.isArray(data) ? data : [];
-    } catch (error) {
-      console.error('Error fetching workflow versions:', error);
-      return [];
-    }
+    return withMockFallback(
+      async () => {
+        const { data } = await api.get(`/api/flows/${workflowName}/versions`);
+        return Array.isArray(data) ? data : [];
+      },
+      mockData.workflows.filter(w => w.name === workflowName)
+    );
   },
 
   async getNodeExecutionsByNodeId(nodeId: string, limit: number = 100): Promise<NodeExecution[]> {
-    try {
-      const { data } = await api.get(`/metrics/service/${nodeId}`);
-      return Array.isArray(data) ? data : [];
-    } catch (error) {
-      console.error('Error fetching node executions:', error);
-      return [];
-    }
+    return withMockFallback(
+      async () => {
+        const { data } = await api.get(`/metrics/service/${nodeId}`);
+        return Array.isArray(data) ? data : [];
+      },
+      generateMockNodeExecutions('mock-execution', 10)
+    );
   },
 };

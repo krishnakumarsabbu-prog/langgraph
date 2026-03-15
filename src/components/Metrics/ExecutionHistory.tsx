@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2,
@@ -9,11 +10,13 @@ import {
   Calendar,
   Timer,
   AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { metricsService, WorkflowExecution } from '../../services/metricsService';
 import { formatDistanceToNow } from 'date-fns';
 
 export const ExecutionHistory: React.FC = () => {
+  const navigate = useNavigate();
   const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedExecution, setSelectedExecution] = useState<string | null>(null);
@@ -140,7 +143,7 @@ export const ExecutionHistory: React.FC = () => {
                       exit={{ opacity: 0, height: 0 }}
                       className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700"
                     >
-                      <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="grid grid-cols-2 gap-4 text-sm mb-4">
                         <div>
                           <p className="text-gray-500 dark:text-gray-400 mb-1">Execution ID</p>
                           <p className="font-mono text-xs text-gray-900 dark:text-white break-all">
@@ -168,6 +171,16 @@ export const ExecutionHistory: React.FC = () => {
                           </p>
                         </div>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/metrics/execution/${exec.id}`);
+                        }}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>View Full Execution Details</span>
+                      </button>
                     </motion.div>
                   )}
                 </div>

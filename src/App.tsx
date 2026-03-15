@@ -6,6 +6,7 @@ import Layout from './components/Layout/Layout';
 import { LangGraphBuilder } from './components/LangGraph/LangGraphBuilder';
 import { LangGraphDashboard } from './components/LangGraph/LangGraphDashboard';
 import { MetricsDashboard } from './components/Metrics/MetricsDashboard';
+import { ExecutionDetailPage } from './components/Metrics/ExecutionDetailPage';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
             <Route path="/langgraph" element={<LangGraphDashboard />} />
             <Route path="/langgraph/builder/:workflowId" element={<LangGraphBuilder />} />
             <Route path="/metrics" element={<MetricsDashboard />} />
+            <Route path="/metrics/execution/:executionId" element={<ExecutionDetailPage />} />
           </Route>
         </Routes>
 
