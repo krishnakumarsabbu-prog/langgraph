@@ -13,7 +13,6 @@ import {
   AlertTriangle,
   Play,
   RefreshCw,
-  Database,
 } from 'lucide-react';
 import { Card } from '../ui/card';
 import { metricsService, MetricsSummary, WorkflowPerformance, ExecutionTrend } from '../../services/metricsService';
@@ -22,8 +21,6 @@ import { PerformanceChart } from './PerformanceChart';
 import { ServiceMetricsPanel } from './ServiceMetricsPanel';
 import { WorkflowVersionsPanel } from './WorkflowVersionsPanel';
 import { ExecutionTrendsChart } from './ExecutionTrendsChart';
-import { seedSampleData } from '../../utils/sampleDataSeeder';
-import toast from 'react-hot-toast';
 
 export const MetricsDashboard: React.FC = () => {
   const [summary, setSummary] = useState<MetricsSummary | null>(null);
@@ -74,24 +71,6 @@ export const MetricsDashboard: React.FC = () => {
       : '0'
     : '0';
 
-  const handleSeedData = async () => {
-    try {
-      toast.loading('Seeding sample data...');
-      const result = await seedSampleData();
-      if (result.success) {
-        toast.dismiss();
-        toast.success('Sample data seeded successfully!');
-        loadMetrics();
-      } else {
-        toast.dismiss();
-        toast.error('Failed to seed sample data');
-      }
-    } catch (error) {
-      toast.dismiss();
-      toast.error('Error seeding sample data');
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -121,23 +100,14 @@ export const MetricsDashboard: React.FC = () => {
                 Real-time workflow execution analytics and performance insights
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleSeedData}
-                className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-all"
-              >
-                <Database className="w-4 h-4" />
-                <span>Seed Sample Data</span>
-              </button>
-              <button
-                onClick={() => loadMetrics(true)}
-                disabled={refreshing}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                <span>Refresh</span>
-              </button>
-            </div>
+            <button
+              onClick={() => loadMetrics(true)}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-500 mt-2">
             Last updated: {lastRefresh.toLocaleTimeString()}

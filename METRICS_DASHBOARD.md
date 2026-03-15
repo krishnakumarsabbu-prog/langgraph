@@ -1,6 +1,6 @@
 # Metrics Dashboard
 
-A production-grade, real-time analytics dashboard for monitoring workflow executions, performance metrics, and service health.
+A production-grade, real-time analytics dashboard for monitoring workflow executions, performance metrics, and service health. **Now integrated with your backend API!**
 
 ## Features
 
@@ -44,25 +44,33 @@ A production-grade, real-time analytics dashboard for monitoring workflow execut
 - Expandable details with execution and workflow IDs
 - Real-time status updates
 
-## Database Schema
+## Backend API Integration
 
-The dashboard uses the following Supabase tables:
+The dashboard integrates with your existing backend APIs:
 
-- **workflows** - Workflow definitions with versioning
-- **workflow_executions** - Execution records with status tracking
-- **node_executions** - Individual node execution details
-- **service_metrics** - Aggregated service performance data
+### API Endpoints Used
+
+- **GET /executions** - List workflow executions
+- **GET /executions/{execution_id}** - Get execution details
+- **GET /executions/{execution_id}/nodes** - Get node executions
+- **GET /api/flows** - List all workflows
+- **GET /api/flows/{name}/versions** - Get workflow versions
+- **GET /metrics/service/all** - Get all service metrics
+- **GET /metrics/service/{node_id}** - Get node-specific metrics
+
+### Configuration
+
+Set your backend API URL in the `.env` file:
+
+```
+VITE_BACKEND_API_URL=http://localhost:8000
+```
+
+The dashboard automatically connects to your backend and fetches real data.
 
 ## Auto-Refresh
 
 The dashboard automatically refreshes every 30 seconds to provide real-time insights without manual intervention.
-
-## Sample Data
-
-Use the "Seed Sample Data" button to populate the dashboard with demonstration data including:
-- 3 sample workflows (Customer Onboarding, Invoice Processing, Lead Qualification)
-- 30 sample executions with varied statuses
-- Service metrics for Email Service, Payment Gateway, and Data Validator
 
 ## Design Features
 
@@ -77,9 +85,9 @@ Use the "Seed Sample Data" button to populate the dashboard with demonstration d
 
 ## Performance
 
-- Optimized database queries with proper indexing
-- Efficient data fetching with parallel API calls
-- Row Level Security (RLS) enabled on all tables
+- Optimized API calls with proper error handling
+- Efficient data fetching with parallel requests
+- Graceful fallbacks when APIs are unavailable
 - Automatic caching and refresh mechanisms
 
 ## Navigation
@@ -89,9 +97,53 @@ Access the Metrics Dashboard from the sidebar using the "Metrics Dashboard" menu
 ## Technology Stack
 
 - React 18 with TypeScript
-- Supabase for database and real-time features
+- Axios for API communication
 - Recharts for data visualization
 - Framer Motion for animations
 - Tailwind CSS for styling
 - Lucide React for icons
 - date-fns for date formatting
+
+## API Response Format
+
+The dashboard expects the following response formats from your backend:
+
+### Workflow Execution
+```json
+{
+  "id": "uuid",
+  "workflow_id": "uuid",
+  "workflow_name": "string",
+  "status": "completed|failed|running|cancelled",
+  "created_at": "ISO datetime",
+  "completed_at": "ISO datetime",
+  "error": "string|null"
+}
+```
+
+### Workflow
+```json
+{
+  "id": "uuid",
+  "name": "string",
+  "version": 1,
+  "data": {},
+  "context": {},
+  "created_at": "ISO datetime"
+}
+```
+
+### Service Metrics
+```json
+{
+  "id": "uuid",
+  "node_id": "string",
+  "service_name": "string",
+  "total_calls": 0,
+  "success_count": 0,
+  "failure_count": 0,
+  "avg_duration_ms": 0,
+  "min_duration_ms": 0,
+  "max_duration_ms": 0
+}
+```

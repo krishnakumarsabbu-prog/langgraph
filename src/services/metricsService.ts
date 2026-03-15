@@ -1,4 +1,13 @@
-import { supabase } from '../lib/supabaseClient';
+import axios from 'axios';
+
+const API_BASE_URL = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8000';
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
 export interface WorkflowExecution {
   id: string;
@@ -82,198 +91,200 @@ export interface WorkflowPerformance {
 
 export const metricsService = {
   async getMetricsSummary(): Promise<MetricsSummary> {
-    const { data: executions, error: execError } = await supabase
-      .from('workflow_executions')
-      .select('status, created_at, completed_at');
+    try {
+      const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
+      const { data: workflows } = await api.get('/api/flows');
 
-    if (execError) throw execError;
+      const executionList = Array.isArray(executions) ? executions : [];
+      const workflowList = Array.isArray(workflows) ? workflows : [];
 
-    const { data: workflows, error: wfError } = await supabase
-      .from('workflows')
-      .select('id')
-      .eq('is_latest', true);
+      const totalExecutions = executionList.length;
+      const successfulExecutions = executionList.filter((e: any) => e.status === 'completed').length;
+      const failedExecutions = executionList.filter((e: any) => e.status === 'failed').length;
+      const runningExecutions = executionList.filter((e: any) => e.status === 'running').length;
 
-    if (wfError) throw wfError;
+      const completedWithTime = executionList.filter(
+        (e: any) => e.completed_at && e.created_at
+      );
+      const totalTime = completedWithTime.reduce((sum: number, e: any) => {
+        const duration = new Date(e.completed_at).getTime() - new Date(e.created_at).getTime();
+        return sum + duration;
+      }, 0);
+      const avgExecutionTime = completedWithTime.length > 0 ? totalTime / completedWithTime.length : 0;
 
-    const totalExecutions = executions?.length || 0;
-    const successfulExecutions = executions?.filter(e => e.status === 'completed').length || 0;
-    const failedExecutions = executions?.filter(e => e.status === 'failed').length || 0;
-    const runningExecutions = executions?.filter(e => e.status === 'running').length || 0;
-
-    const completedWithTime = executions?.filter(e => e.completed_at && e.created_at) || [];
-    const totalTime = completedWithTime.reduce((sum, e) => {
-      const duration = new Date(e.completed_at!).getTime() - new Date(e.created_at).getTime();
-      return sum + duration;
-    }, 0);
-    const avgExecutionTime = completedWithTime.length > 0 ? totalTime / completedWithTime.length : 0;
-
-    return {
-      totalExecutions,
-      successfulExecutions,
-      failedExecutions,
-      runningExecutions,
-      avgExecutionTime,
-      totalWorkflows: workflows?.length || 0,
-    };
+      return {
+        totalExecutions,
+        successfulExecutions,
+        failedExecutions,
+        runningExecutions,
+        avgExecutionTime,
+        totalWorkflows: workflowList.length,
+      };
+    } catch (error) {
+      console.error('Error fetching metrics summary:', error);
+      return {
+        totalExecutions: 0,
+        successfulExecutions: 0,
+        failedExecutions: 0,
+        runningExecutions: 0,
+        avgExecutionTime: 0,
+        totalWorkflows: 0,
+      };
+    }
   },
 
   async getExecutionTrends(days: number = 7): Promise<ExecutionTrend[]> {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    try {
+      const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
+      const executionList = Array.isArray(executions) ? executions : [];
 
-    const { data, error } = await supabase
-      .from('workflow_executions')
-      .select('status, created_at')
-      .gte('created_at', startDate.toISOString())
-      .order('created_at', { ascending: true });
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
 
-    if (error) throw error;
+      const filtered = executionList.filter(
+        (e: any) => new Date(e.created_at) >= startDate
+      );
 
-    const trendMap = new Map<string, { total: number; success: number; failed: number }>();
+      const trendMap = new Map<string, { total: number; success: number; failed: number }>();
 
-    data?.forEach(exec => {
-      const date = new Date(exec.created_at).toISOString().split('T')[0];
-      if (!trendMap.has(date)) {
-        trendMap.set(date, { total: 0, success: 0, failed: 0 });
-      }
-      const trend = trendMap.get(date)!;
-      trend.total++;
-      if (exec.status === 'completed') trend.success++;
-      if (exec.status === 'failed') trend.failed++;
-    });
+      filtered.forEach((exec: any) => {
+        const date = new Date(exec.created_at).toISOString().split('T')[0];
+        if (!trendMap.has(date)) {
+          trendMap.set(date, { total: 0, success: 0, failed: 0 });
+        }
+        const trend = trendMap.get(date)!;
+        trend.total++;
+        if (exec.status === 'completed') trend.success++;
+        if (exec.status === 'failed') trend.failed++;
+      });
 
-    return Array.from(trendMap.entries()).map(([date, stats]) => ({
-      date,
-      ...stats,
-    }));
+      return Array.from(trendMap.entries())
+        .map(([date, stats]) => ({ date, ...stats }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    } catch (error) {
+      console.error('Error fetching execution trends:', error);
+      return [];
+    }
   },
 
   async getWorkflowPerformance(): Promise<WorkflowPerformance[]> {
-    const { data, error } = await supabase
-      .from('workflow_executions')
-      .select('workflow_name, status, created_at, completed_at')
-      .order('created_at', { ascending: false });
+    try {
+      const { data: executions } = await api.get('/executions', { params: { limit: 1000 } });
+      const executionList = Array.isArray(executions) ? executions : [];
 
-    if (error) throw error;
+      const performanceMap = new Map<
+        string,
+        {
+          total: number;
+          success: number;
+          durations: number[];
+          lastExecuted: string;
+        }
+      >();
 
-    const performanceMap = new Map<string, {
-      total: number;
-      success: number;
-      durations: number[];
-      lastExecuted: string;
-    }>();
+      executionList.forEach((exec: any) => {
+        const workflowName = exec.workflow_name || 'Unknown';
+        if (!performanceMap.has(workflowName)) {
+          performanceMap.set(workflowName, {
+            total: 0,
+            success: 0,
+            durations: [],
+            lastExecuted: exec.created_at,
+          });
+        }
+        const perf = performanceMap.get(workflowName)!;
+        perf.total++;
+        if (exec.status === 'completed') perf.success++;
+        if (exec.completed_at && exec.created_at) {
+          const duration = new Date(exec.completed_at).getTime() - new Date(exec.created_at).getTime();
+          perf.durations.push(duration);
+        }
+        if (new Date(exec.created_at) > new Date(perf.lastExecuted)) {
+          perf.lastExecuted = exec.created_at;
+        }
+      });
 
-    data?.forEach(exec => {
-      if (!performanceMap.has(exec.workflow_name)) {
-        performanceMap.set(exec.workflow_name, {
-          total: 0,
-          success: 0,
-          durations: [],
-          lastExecuted: exec.created_at,
-        });
-      }
-      const perf = performanceMap.get(exec.workflow_name)!;
-      perf.total++;
-      if (exec.status === 'completed') perf.success++;
-      if (exec.completed_at && exec.created_at) {
-        const duration = new Date(exec.completed_at).getTime() - new Date(exec.created_at).getTime();
-        perf.durations.push(duration);
-      }
-      if (new Date(exec.created_at) > new Date(perf.lastExecuted)) {
-        perf.lastExecuted = exec.created_at;
-      }
-    });
-
-    return Array.from(performanceMap.entries()).map(([workflow_name, stats]) => ({
-      workflow_name,
-      total_executions: stats.total,
-      success_rate: stats.total > 0 ? (stats.success / stats.total) * 100 : 0,
-      avg_duration: stats.durations.length > 0
-        ? stats.durations.reduce((a, b) => a + b, 0) / stats.durations.length
-        : 0,
-      last_executed: stats.lastExecuted,
-    }));
+      return Array.from(performanceMap.entries()).map(([workflow_name, stats]) => ({
+        workflow_name,
+        total_executions: stats.total,
+        success_rate: stats.total > 0 ? (stats.success / stats.total) * 100 : 0,
+        avg_duration:
+          stats.durations.length > 0
+            ? stats.durations.reduce((a, b) => a + b, 0) / stats.durations.length
+            : 0,
+        last_executed: stats.lastExecuted,
+      }));
+    } catch (error) {
+      console.error('Error fetching workflow performance:', error);
+      return [];
+    }
   },
 
   async getRecentExecutions(limit: number = 50): Promise<WorkflowExecution[]> {
-    const { data, error } = await supabase
-      .from('workflow_executions')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data } = await api.get('/executions', { params: { limit } });
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error('Error fetching recent executions:', error);
+      return [];
+    }
   },
 
   async getExecutionDetails(executionId: string): Promise<{
     execution: WorkflowExecution;
     nodeExecutions: NodeExecution[];
   }> {
-    const { data: execution, error: execError } = await supabase
-      .from('workflow_executions')
-      .select('*')
-      .eq('id', executionId)
-      .maybeSingle();
+    try {
+      const { data: execution } = await api.get(`/executions/${executionId}`);
+      const { data: nodeExecutions } = await api.get(`/executions/${executionId}/nodes`);
 
-    if (execError) throw execError;
-    if (!execution) throw new Error('Execution not found');
-
-    const { data: nodeExecutions, error: nodeError } = await supabase
-      .from('node_executions')
-      .select('*')
-      .eq('workflow_execution_id', executionId)
-      .order('started_at', { ascending: true });
-
-    if (nodeError) throw nodeError;
-
-    return {
-      execution,
-      nodeExecutions: nodeExecutions || [],
-    };
+      return {
+        execution,
+        nodeExecutions: Array.isArray(nodeExecutions) ? nodeExecutions : [],
+      };
+    } catch (error) {
+      console.error('Error fetching execution details:', error);
+      throw error;
+    }
   },
 
   async getServiceMetrics(): Promise<ServiceMetrics[]> {
-    const { data, error } = await supabase
-      .from('service_metrics')
-      .select('*')
-      .order('total_calls', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data } = await api.get('/metrics/service/all');
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error('Error fetching service metrics:', error);
+      return [];
+    }
   },
 
   async getWorkflows(): Promise<Workflow[]> {
-    const { data, error } = await supabase
-      .from('workflows')
-      .select('*')
-      .eq('is_latest', true)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data } = await api.get('/api/flows');
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error('Error fetching workflows:', error);
+      return [];
+    }
   },
 
   async getWorkflowVersions(workflowName: string): Promise<Workflow[]> {
-    const { data, error } = await supabase
-      .from('workflows')
-      .select('*')
-      .eq('name', workflowName)
-      .order('version', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data } = await api.get(`/api/flows/${workflowName}/versions`);
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error('Error fetching workflow versions:', error);
+      return [];
+    }
   },
 
   async getNodeExecutionsByNodeId(nodeId: string, limit: number = 100): Promise<NodeExecution[]> {
-    const { data, error } = await supabase
-      .from('node_executions')
-      .select('*')
-      .eq('node_id', nodeId)
-      .order('started_at', { ascending: false })
-      .limit(limit);
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data } = await api.get(`/metrics/service/${nodeId}`);
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error('Error fetching node executions:', error);
+      return [];
+    }
   },
 };
