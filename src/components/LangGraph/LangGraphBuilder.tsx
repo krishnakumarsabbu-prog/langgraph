@@ -1424,6 +1424,37 @@ export const LangGraphBuilder: React.FC = () => {
             retryConfig: { enabled: false, maxRetries: 3, retryDelay: 1000 },
           }}
           initialInputs={inputs}
+          currentNodeId={selectedNode.id}
+          allNodes={nodes as any}
+          allEdges={edges as any}
+          nodeExecutionStates={nodeExecutionStates as any}
+          onRunUpstreamNode={async (nodeId) => {
+            const targetNode = nodes.find(n => n.id === nodeId);
+            if (!targetNode) return;
+            setNodeExecutionState(nodeId, { status: 'running', logs: [`[${new Date().toISOString()}] Running node...`] });
+            try {
+              const nd = targetNode.data as any;
+              if (targetNode.type === 'serviceNode' && nd.url) {
+                const response = await fetch(nd.url, {
+                  method: nd.method || 'GET',
+                  headers: nd.config?.headers?.reduce((acc: any, h: any) => ({ ...acc, [h.key]: h.value }), {}) || {},
+                  body: nd.method !== 'GET' && nd.config?.requestBody ? nd.config.requestBody : undefined,
+                });
+                let result: any = await response.text();
+                try { result = JSON.parse(result); } catch {}
+                setNodeExecutionState(nodeId, {
+                  status: response.ok ? 'success' : 'failed',
+                  logs: [`[${new Date().toISOString()}] ${nd.method || 'GET'} ${nd.url}`, `[${new Date().toISOString()}] Status: ${response.status}`, typeof result === 'object' ? JSON.stringify(result, null, 2) : result],
+                  lastRun: new Date(),
+                });
+              } else {
+                await new Promise(r => setTimeout(r, 800));
+                setNodeExecutionState(nodeId, { status: 'success', logs: [`[${new Date().toISOString()}] Simulated execution`, `[${new Date().toISOString()}] Result: {"status":"ok"}`], lastRun: new Date() });
+              }
+            } catch (err: any) {
+              setNodeExecutionState(nodeId, { status: 'failed', logs: [`Error: ${err.message}`], lastRun: new Date() });
+            }
+          }}
         />
       )}
 
@@ -1469,6 +1500,37 @@ export const LangGraphBuilder: React.FC = () => {
           onBack={() => {
             const name = (selectedNode.data as any).selectedWorkflowName;
             if (name) window.open(`/langgraph/builder/${encodeURIComponent(name)}?mode=view`, '_blank');
+          }}
+          currentNodeId={selectedNode.id}
+          allNodes={nodes as any}
+          allEdges={edges as any}
+          nodeExecutionStates={nodeExecutionStates as any}
+          onRunUpstreamNode={async (nodeId) => {
+            const targetNode = nodes.find(n => n.id === nodeId);
+            if (!targetNode) return;
+            setNodeExecutionState(nodeId, { status: 'running', logs: [`[${new Date().toISOString()}] Running node...`] });
+            try {
+              const nd = targetNode.data as any;
+              if (targetNode.type === 'serviceNode' && nd.url) {
+                const response = await fetch(nd.url, {
+                  method: nd.method || 'GET',
+                  headers: nd.config?.headers?.reduce((acc: any, h: any) => ({ ...acc, [h.key]: h.value }), {}) || {},
+                  body: nd.method !== 'GET' && nd.config?.requestBody ? nd.config.requestBody : undefined,
+                });
+                let result: any = await response.text();
+                try { result = JSON.parse(result); } catch {}
+                setNodeExecutionState(nodeId, {
+                  status: response.ok ? 'success' : 'failed',
+                  logs: [`[${new Date().toISOString()}] ${nd.method || 'GET'} ${nd.url}`, `[${new Date().toISOString()}] Status: ${response.status}`, typeof result === 'object' ? JSON.stringify(result, null, 2) : result],
+                  lastRun: new Date(),
+                });
+              } else {
+                await new Promise(r => setTimeout(r, 800));
+                setNodeExecutionState(nodeId, { status: 'success', logs: [`[${new Date().toISOString()}] Simulated execution`, `[${new Date().toISOString()}] Result: {"status":"ok"}`], lastRun: new Date() });
+              }
+            } catch (err: any) {
+              setNodeExecutionState(nodeId, { status: 'failed', logs: [`Error: ${err.message}`], lastRun: new Date() });
+            }
           }}
         />
       )}
