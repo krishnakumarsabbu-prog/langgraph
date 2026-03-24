@@ -44,6 +44,7 @@ export interface ParallelNodeData {
 
 export interface MergeNodeData {
   label: string;
+  inputCount: number;
 }
 
 export type NodeData = ServiceNodeData | DecisionNodeData | LLMNodeData | FormNodeData | WorkflowNodeData | ParallelNodeData | MergeNodeData;
@@ -243,6 +244,7 @@ export const useLangGraphStore = create<LangGraphState>((set, get) => ({
       position,
       data: {
         label: id,
+        inputCount: 2,
       },
     };
     set({ nodes: [...get().nodes, newNode], selectedNodeId: id });

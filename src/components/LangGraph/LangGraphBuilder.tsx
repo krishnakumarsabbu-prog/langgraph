@@ -603,8 +603,49 @@ export const LangGraphBuilder: React.FC = () => {
         );
       case 'mergeNode':
         return (
-          <div className="text-xs text-gray-500 text-center py-6">
-            This node has no additional configuration options.
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Number of Inputs</label>
+              <p className="text-xs text-gray-400 mb-3">Set how many parallel branches this node collects from (2–8).</p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    const current = nodeData.inputCount ?? 2;
+                    if (current > 2) updateNodeData(selectedNode.id, { inputCount: current - 1 });
+                  }}
+                  className="w-8 h-8 rounded border border-gray-300 flex items-center justify-center text-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
+                  disabled={(nodeData.inputCount ?? 2) <= 2}
+                >
+                  −
+                </button>
+                <span className="w-8 text-center text-base font-semibold text-gray-800">{nodeData.inputCount ?? 2}</span>
+                <button
+                  onClick={() => {
+                    const current = nodeData.inputCount ?? 2;
+                    if (current < 8) updateNodeData(selectedNode.id, { inputCount: current + 1 });
+                  }}
+                  className="w-8 h-8 rounded border border-gray-300 flex items-center justify-center text-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
+                  disabled={(nodeData.inputCount ?? 2) >= 8}
+                >
+                  +
+                </button>
+              </div>
+              <div className="mt-3 flex gap-1.5 flex-wrap">
+                {[2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => updateNodeData(selectedNode.id, { inputCount: n })}
+                    className={`px-3 py-1 text-xs rounded border transition-colors ${
+                      (nodeData.inputCount ?? 2) === n
+                        ? 'bg-slate-600 border-slate-600 text-white font-semibold'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         );
 
