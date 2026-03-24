@@ -33,7 +33,7 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 # ==============================================================================
-# Helpers: deep_get / render_template
+# Helpers: deep_get / render_template / _validate_service_url
 # ==============================================================================
 
 def deep_get(data: Dict[str, Any], path: str) -> Any:
@@ -60,6 +60,7 @@ def deep_get(data: Dict[str, Any], path: str) -> Any:
                 return None
     return data
 
+
 def render_template(obj: Any, context: Dict[str, Any]) -> Any:
     if isinstance(obj, str):
         matches = re.findall(r"\{([^{}]+)\}", obj)
@@ -74,12 +75,12 @@ def render_template(obj: Any, context: Dict[str, Any]) -> Any:
         return [render_template(v, context) for v in obj]
     return obj
 
+
 def _validate_service_url(url: str) -> None:
     if not url:
         raise ValueError("Service node URL is required")
     if not (url.startswith("http://") or url.startswith("https://")):
         raise ValueError("Service node URL must start with http:// or https://")
-
     allowlist = os.getenv("SERVICE_URL_ALLOWLIST")
     if allowlist:
         hosts = [h.strip() for h in allowlist.split(",") if h.strip()]
@@ -90,10 +91,59 @@ def _validate_service_url(url: str) -> None:
 
 
 # ==============================================================================
+# Parallel state helpers
+#
+# The `_parallel` key in state is a namespace for all parallel execution
+# contexts. Structure:
+#
+#   state["_parallel"] = {
+#       "<parallel_node_id>": {
+#           "expected": ["branch-node-a", "branch-node-b", ...],
+#           "completed": ["branch-node-a"],        # grows as branches finish
+#           "results":  {"branch-node-a": {...}},  # per-branch output snapshot
+#       },
+#       ...   # one entry per parallel block — fully isolated
+#   }
+#
+# This design handles:
+#   - Multiple parallel blocks in the same graph (namespaced by parallel_node_id)
+#   - Safe fan-in barrier (merge waits until completed == expected)
+#   - No cross-contamination between blocks
+# ==============================================================================
+
+def _init_parallel_context(state: Dict[str, Any], parallel_id: str, branch_targets: List[str]) -> None:
+    if "_parallel" not in state:
+        state["_parallel"] = {}
+    state["_parallel"][parallel_id] = {
+        "expected": list(branch_targets),
+        "completed": [],
+        "results": {},
+    }
+
+
+def _mark_branch_completed(state: Dict[str, Any], parallel_id: str, branch_node_id: str) -> None:
+    pctx = state.get("_parallel", {}).get(parallel_id)
+    if pctx is None:
+        return
+    if branch_node_id not in pctx["completed"]:
+        pctx["completed"].append(branch_node_id)
+    pctx["results"][branch_node_id] = state.get(branch_node_id)
+
+
+def _all_branches_done(state: Dict[str, Any], parallel_id: str) -> bool:
+    pctx = state.get("_parallel", {}).get(parallel_id)
+    if not pctx:
+        return False
+    expected = set(pctx["expected"])
+    completed = set(pctx["completed"])
+    return expected.issubset(completed)
+
+
+# ==============================================================================
 # Node: Service Node
 # ==============================================================================
 
-def make_service_node(node_data: Dict[str, Any], execution_id: str):
+def make_service_node(node_data: Dict[str, Any], execution_id: str, parallel_id: Optional[str] = None):
     data_cfg = node_data.get("data", {})
     url = data_cfg.get("url")
     method = data_cfg.get("method", "POST").upper()
@@ -137,10 +187,13 @@ def make_service_node(node_data: Dict[str, Any], execution_id: str):
             logger.error("[%s] URL validation failed: %s", node_label, e)
             save_node_execution(
                 execution_id, node_id, node_type="service", node_label=node_label,
-                status="failed", request_data=None, response_data={"error": str(e)}, error_msg=str(e), exec_time=0
+                status="failed", request_data=None, response_data={"error": str(e)},
+                error_msg=str(e), exec_time=0
             )
             update_service_metrics(node_id, success=False, exec_time_ms=0)
             state[node_id] = {"error": str(e)}
+            if parallel_id:
+                _mark_branch_completed(state, parallel_id, node_id)
             return state
 
         payload = render_template(copy.deepcopy(request_template), state)
@@ -151,7 +204,6 @@ def make_service_node(node_data: Dict[str, Any], execution_id: str):
                 target = m.get("target")
                 transform = m.get("transform")
                 val = deep_get(state, source)
-
                 if val is not None:
                     if transform == "upper":
                         val = str(val).upper()
@@ -159,7 +211,6 @@ def make_service_node(node_data: Dict[str, Any], execution_id: str):
                         val = str(val).lower()
                     elif transform == "strip":
                         val = str(val).strip()
-
                     parts = target.split(".") if target else []
                     sub = payload
                     for p in parts[:-1]:
@@ -188,18 +239,16 @@ def make_service_node(node_data: Dict[str, Any], execution_id: str):
             else:
                 resp_data = {"error": resp.text, "status_code": resp.status_code}
                 error_msg = resp.text
-                ok = False
         except Exception as e:
             resp_data = {"error": str(e)}
             error_msg = str(e)
-            ok = False
 
         exec_time = int((dt.datetime.utcnow() - start_time).total_seconds() * 1000)
 
         save_node_execution(
             execution_id, node_id, node_type="service", node_label=node_label,
-            status="completed" if ok else "failed", request_data=payload, response_data=resp_data,
-            error_msg=error_msg, exec_time=exec_time
+            status="completed" if ok else "failed", request_data=payload,
+            response_data=resp_data, error_msg=error_msg, exec_time=exec_time
         )
         update_service_metrics(node_id, ok, exec_time)
 
@@ -209,16 +258,21 @@ def make_service_node(node_data: Dict[str, Any], execution_id: str):
             "_metrics": {"last_exec_ms": exec_time, "success": ok},
         }
 
+        # Register completion in parallel context if this node is a branch node
+        if parallel_id:
+            _mark_branch_completed(state, parallel_id, node_id)
+
         logger.info("[service:%s] ok=%s time_ms=%s", node_label, ok, exec_time)
         return state
 
     return run_fn
 
+
 # ==============================================================================
 # Node: Decision Node
 # ==============================================================================
 
-def make_decision_node(node_data: Dict[str, Any], execution_id: str):
+def make_decision_node(node_data: Dict[str, Any], execution_id: str, parallel_id: Optional[str] = None):
     data_cfg = node_data.get("data", {})
     rules = data_cfg.get("rules", [])
     script = data_cfg.get("script")
@@ -230,7 +284,6 @@ def make_decision_node(node_data: Dict[str, Any], execution_id: str):
 
         new_state = state.copy()
         actions_taken = []
-
         names = {"state": new_state, "input": new_state.get("input", {})}
 
         if rules:
@@ -269,16 +322,20 @@ def make_decision_node(node_data: Dict[str, Any], execution_id: str):
             "_metrics": {"last_exec_ms": exec_time, "success": True},
         }
 
+        if parallel_id:
+            _mark_branch_completed(new_state, parallel_id, node_id)
+
         logger.info("[decision:%s] actions=%d time_ms=%s", node_label, len(actions_taken), exec_time)
         return new_state
 
     return run_fn
 
+
 # ==============================================================================
 # Node: Form Node
 # ==============================================================================
 
-def make_form_node(node_data: Dict[str, Any], execution_id: str):
+def make_form_node(node_data: Dict[str, Any], execution_id: str, parallel_id: Optional[str] = None):
     node_id = node_data["id"]
     data_cfg = node_data.get("data", {})
     node_label = data_cfg.get("label", node_id)
@@ -288,8 +345,8 @@ def make_form_node(node_data: Dict[str, Any], execution_id: str):
     def run_fn(state: Dict[str, Any]):
         save_node_execution(
             execution_id, node_id, node_type="form", node_label=node_label,
-            status="paused", request_data={"form_schema": form_schema}, response_data=None, error_msg=None,
-            exec_time_ms=0
+            status="paused", request_data={"form_schema": form_schema},
+            response_data=None, error_msg=None, exec_time_ms=0
         )
         state["paused_at_form"] = {
             "node_id": node_id,
@@ -301,11 +358,12 @@ def make_form_node(node_data: Dict[str, Any], execution_id: str):
 
     return run_fn
 
+
 # ==============================================================================
 # Node: Sub-workflow Node
 # ==============================================================================
 
-def make_subworkflow_node(node_data: Dict[str, Any], execution_id: str):
+def make_subworkflow_node(node_data: Dict[str, Any], execution_id: str, parallel_id: Optional[str] = None):
     node_id = node_data["id"]
     data_cfg = node_data.get("data", {})
     node_label = data_cfg.get("label", node_id)
@@ -314,40 +372,32 @@ def make_subworkflow_node(node_data: Dict[str, Any], execution_id: str):
     def run_fn(state: Dict[str, Any]):
         start_time = dt.datetime.utcnow()
         parent_state = state
+
+        def _fail(msg: str, exec_time_ms: int = 0):
+            save_node_execution(
+                execution_id, node_id, node_type="subworkflow", node_label=node_label,
+                status="failed", request_data=None, response_data={"error": msg},
+                error_msg=msg, exec_time_ms=exec_time_ms
+            )
+            update_service_metrics(node_id, success=False, exec_time_ms=exec_time_ms)
+            parent_state[node_id] = {"error": msg}
+            if parallel_id:
+                _mark_branch_completed(parent_state, parallel_id, node_id)
+            return parent_state
+
         try:
             response_data = db_get_latest_flow(sub_workflow_name)
             subgraph = response_data.get("data", {}).get("graph")
         except NotFoundError:
             logger.error("[subworkflow:%s] Subgraph '%s' not found", node_label, sub_workflow_name)
-            save_node_execution(
-                execution_id, node_id, node_type="subworkflow", node_label=node_label,
-                status="failed", request_data=None, response_data={"error": "No subgraph"}, error_msg="No subgraph",
-                exec_time_ms=0
-            )
-            update_service_metrics(node_id, success=False, exec_time_ms=0)
-            parent_state[node_id] = {"error": "No subgraph provided"}
-            return parent_state
+            return _fail("No subgraph provided")
         except DBError as e:
             logger.error("[subworkflow:%s] DB error: %s", node_label, e)
-            save_node_execution(
-                execution_id, node_id, node_type="subworkflow", node_label=node_label,
-                status="failed", request_data=None, response_data={"error": str(e)}, error_msg=str(e),
-                exec_time_ms=0
-            )
-            update_service_metrics(node_id, success=False, exec_time_ms=0)
-            parent_state[node_id] = {"error": str(e)}
-            return parent_state
+            return _fail(str(e))
 
         if not subgraph:
             logger.error("[subworkflow:%s] Empty subgraph for '%s'", node_label, sub_workflow_name)
-            save_node_execution(
-                execution_id, node_id, node_type="subworkflow", node_label=node_label,
-                status="failed", request_data=None, response_data={"error": "Empty subgraph"},
-                error_msg="Empty subgraph", exec_time_ms=0
-            )
-            update_service_metrics(node_id, success=False, exec_time_ms=0)
-            parent_state[node_id] = {"error": "Empty subgraph"}
-            return parent_state
+            return _fail("Empty subgraph")
 
         sub_execution_id = str(uuid.uuid4())
         sub_state = {"input": parent_state.get("input", {})}
@@ -355,7 +405,8 @@ def make_subworkflow_node(node_data: Dict[str, Any], execution_id: str):
         entry_node_id = subgraph.get("nodes", [{}])[0].get("id") if subgraph.get("nodes") else None
         save_workflow_execution(
             sub_execution_id, node_label or "subworkflow", status="running",
-            entry_node_id=entry_node_id, state=sub_state, workflow_graph=subgraph, parent_execution_id=execution_id
+            entry_node_id=entry_node_id, state=sub_state, workflow_graph=subgraph,
+            parent_execution_id=execution_id
         )
 
         try:
@@ -372,8 +423,8 @@ def make_subworkflow_node(node_data: Dict[str, Any], execution_id: str):
             exec_time = int((dt.datetime.utcnow() - start_time).total_seconds() * 1000)
             save_node_execution(
                 execution_id, node_id, node_type="subworkflow", node_label=node_label,
-                status="completed", request_data={"sub_execution_id": sub_execution_id}, response_data=sub_result,
-                error_msg=None, exec_time=exec_time
+                status="completed", request_data={"sub_execution_id": sub_execution_id},
+                response_data=sub_result, error_msg=None, exec_time=exec_time
             )
             update_service_metrics(node_id, success=True, exec_time=exec_time)
 
@@ -384,46 +435,40 @@ def make_subworkflow_node(node_data: Dict[str, Any], execution_id: str):
                 "_metrics": {"last_exec_ms": exec_time, "success": True},
             }
 
+            if parallel_id:
+                _mark_branch_completed(parent_state, parallel_id, node_id)
+
             logger.info("[subworkflow:%s] Completed child execution=%s", node_label, sub_execution_id)
             return parent_state
+
         except Exception as e:
             save_workflow_execution(
                 sub_execution_id, node_label or "subworkflow", status="failed",
                 current_node_id="unknown", state={"error": str(e)}, workflow_graph=subgraph,
                 parent_execution_id=execution_id
             )
-            save_node_execution(
-                execution_id, node_id, node_type="subworkflow", node_label=node_label,
-                status="failed", request_data=None, response_data={"error": str(e)},
-                error_msg=str(e), exec_time_ms=0
-            )
-            update_service_metrics(node_id, success=False, exec_time_ms=0)
-            parent_state[node_id] = {"error": str(e)}
             logger.exception("[subworkflow:%s] Exception: %s", node_label, e)
-            return parent_state
+            return _fail(str(e))
 
     return run_fn
+
 
 # ==============================================================================
 # Node: Parallel Node
 #
-# Fan-out dispatcher. When the graph reaches this node it uses LangGraph's Send
-# API to launch every downstream branch as an independent concurrent task.
+# Design:
+#   1. run_fn  — initialises the namespaced `_parallel[node_id]` context in
+#                state (expected branches, empty completed list, empty results).
+#   2. router  — returned by make_parallel_router, attached via
+#                add_conditional_edges.  It deep-copies state once per branch
+#                (prevents mutations from leaking between branches) then issues
+#                one Send(target, branch_state) per downstream node.
 #
-# How it works:
-#   1. The parallel node's run_fn is a no-op — it just records itself in state
-#      and returns, signalling "I'm done".
-#   2. A router function (returned by make_parallel_router) is attached as a
-#      conditional edge FROM the parallel node.  The router inspects the edges
-#      in the compiled graph JSON and returns a list[Send] — one per downstream
-#      branch — causing LangGraph to execute all branches in parallel.
-#   3. Each downstream node receives the same current state snapshot.
+# Multiple parallel blocks are fully isolated because every block uses its own
+# node_id as the namespace key in state["_parallel"].
 #
-# Data shape from frontend:
+# Frontend data shape:
 #   { id: "parallel-1", type: "parallel", data: { label: "...", outputCount: N } }
-#
-# Edges from a parallel node carry sourceHandle "output-1" … "output-N".
-# We capture the target node ids for those edges at graph-build time.
 # ==============================================================================
 
 def make_parallel_node(node_data: Dict[str, Any], execution_id: str):
@@ -456,17 +501,30 @@ def make_parallel_node(node_data: Dict[str, Any], execution_id: str):
     return run_fn
 
 
-def make_parallel_router(node_id: str, branch_targets: List[str]):
+def make_parallel_router(parallel_id: str, branch_targets: List[str]):
     """
-    Returns a router function for add_conditional_edges that fans out to every
-    branch target simultaneously using LangGraph's Send API.
+    Router attached as a conditional edge FROM the parallel node.
 
-    branch_targets: ordered list of node IDs that are the direct downstream
-                    targets of this parallel node's output handles.
+    For each branch target:
+      - deep-copies the current state snapshot (prevents branch mutations from
+        leaking into sibling branches)
+      - stamps _parallel[parallel_id].expected with all branch node IDs so the
+        merge barrier knows what to wait for
+      - issues a Send(target, branch_state)
+
+    Returns List[Send] which LangGraph executes concurrently.
     """
     def router(state: Dict[str, Any]) -> List[Send]:
-        sends = [Send(target, state) for target in branch_targets]
-        logger.info("[parallel-router:%s] Sending to branches: %s", node_id, branch_targets)
+        sends: List[Send] = []
+        for target in branch_targets:
+            branch_state = copy.deepcopy(state)
+            _init_parallel_context(branch_state, parallel_id, branch_targets)
+            sends.append(Send(target, branch_state))
+
+        logger.info(
+            "[parallel-router:%s] fan-out -> %s (%d branches)",
+            parallel_id, branch_targets, len(branch_targets)
+        )
         return sends
 
     return router
@@ -475,24 +533,34 @@ def make_parallel_router(node_id: str, branch_targets: List[str]):
 # ==============================================================================
 # Node: Merge Node
 #
-# Fan-in collector. Waits until all parallel branches have written their results
-# into the shared state, then aggregates them under its own node key.
+# Fan-in collector with an explicit barrier.
 #
-# How it works:
-#   LangGraph merges state from all parallel Send branches automatically before
-#   invoking the merge node (because all branches write to the same shared state
-#   dict and LangGraph's dict reducer uses last-write-wins per key).
-#   The merge node simply collects the results from the upstream branch nodes
-#   (identified via the edges in the graph) and records them together.
+# Design:
+#   - At graph-build time the merge node receives:
+#       parallel_id       — the ID of the parallel node that owns this merge
+#       upstream_node_ids — the direct predecessors (branch nodes) of this merge
+#   - At runtime:
+#       1. Reads state["_parallel"][parallel_id]["completed"]
+#       2. If not all expected branches are done → returns state unchanged
+#          (LangGraph will invoke the node again when more branches arrive)
+#       3. Once the barrier passes → aggregates all branch results from
+#          state["_parallel"][parallel_id]["results"] and writes them under
+#          state[node_id]
 #
-# Data shape from frontend:
+# Isolation:
+#   Every parallel block writes to its own namespace in state["_parallel"], so
+#   two parallel blocks in the same graph cannot interfere.
+#
+# Frontend data shape:
 #   { id: "merge-1", type: "merge", data: { label: "...", inputCount: N } }
-#
-# Edges into a merge node carry targetHandle "input-1" … "input-N".
-# We capture the source node ids for those edges at graph-build time.
 # ==============================================================================
 
-def make_merge_node(node_data: Dict[str, Any], execution_id: str, upstream_node_ids: List[str]):
+def make_merge_node(
+    node_data: Dict[str, Any],
+    execution_id: str,
+    parallel_id: str,
+    upstream_node_ids: List[str],
+):
     node_id = node_data["id"]
     data_cfg = node_data.get("data", {})
     node_label = data_cfg.get("label", node_id)
@@ -501,17 +569,37 @@ def make_merge_node(node_data: Dict[str, Any], execution_id: str, upstream_node_
     def run_fn(state: Dict[str, Any]):
         start_time = dt.datetime.utcnow()
 
-        # Collect results from all upstream branch nodes
-        merged_results: Dict[str, Any] = {}
+        # Barrier: wait until all expected branches have completed
+        if not _all_branches_done(state, parallel_id):
+            pctx = state.get("_parallel", {}).get(parallel_id, {})
+            logger.info(
+                "[merge:%s] barrier waiting — completed=%s expected=%s",
+                node_label,
+                pctx.get("completed", []),
+                pctx.get("expected", []),
+            )
+            return state
+
+        # Collect merged results from the parallel context (branch-namespaced)
+        pctx = state["_parallel"][parallel_id]
+        merged_results: Dict[str, Any] = dict(pctx.get("results", {}))
+
+        # Also pull any upstream nodes that wrote directly to state
+        # (covers edge cases where a branch node did not use _mark_branch_completed)
         for uid in upstream_node_ids:
-            merged_results[uid] = state.get(uid)
+            if uid not in merged_results:
+                merged_results[uid] = state.get(uid)
 
         exec_time = int((dt.datetime.utcnow() - start_time).total_seconds() * 1000)
 
         save_node_execution(
             execution_id, node_id, node_type="merge", node_label=node_label,
             status="completed",
-            request_data={"upstream_nodes": upstream_node_ids, "input_count": input_count},
+            request_data={
+                "parallel_id": parallel_id,
+                "upstream_nodes": upstream_node_ids,
+                "input_count": input_count,
+            },
             response_data={"merged": merged_results},
             error_msg=None, exec_time=exec_time
         )
@@ -523,8 +611,8 @@ def make_merge_node(node_data: Dict[str, Any], execution_id: str, upstream_node_
         }
 
         logger.info(
-            "[merge:%s] Merged %d upstream nodes: %s",
-            node_label, len(upstream_node_ids), upstream_node_ids
+            "[merge:%s] barrier passed — merged %d branches from parallel=%s",
+            node_label, len(merged_results), parallel_id
         )
         return state
 
@@ -532,9 +620,9 @@ def make_merge_node(node_data: Dict[str, Any], execution_id: str, upstream_node_
 
 
 # ==============================================================================
-# Node factory: maps node types to builder functions
-# Note: parallel and merge use custom registration paths in build_graph_from_json
-#       because they need graph topology context (branch targets / upstream ids).
+# Node factory
+# (parallel / merge are registered separately in build_graph_from_json because
+#  they need topology context that is not available at factory-call time)
 # ==============================================================================
 
 NODE_FACTORY = {
@@ -558,35 +646,69 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
     current_pause_form_id: Optional[str] = None
 
     # ------------------------------------------------------------------
-    # Pre-compute topology helpers for parallel/merge wiring
+    # Pre-compute topology
     # ------------------------------------------------------------------
 
     all_edges: List[Dict[str, Any]] = graph_json.get("edges", [])
 
-    # Map: node_id -> list of target node_ids (for parallel fan-out)
+    # node_id -> list of target node_ids
     edges_out: Dict[str, List[str]] = {}
+    # node_id -> list of source node_ids
+    edges_in: Dict[str, List[str]] = {}
+
     for e in all_edges:
         src = e.get("source")
         tgt = e.get("target")
         if src and tgt:
             edges_out.setdefault(src, []).append(tgt)
-
-    # Map: node_id -> list of source node_ids (for merge fan-in)
-    edges_in: Dict[str, List[str]] = {}
-    for e in all_edges:
-        src = e.get("source")
-        tgt = e.get("target")
-        if src and tgt:
             edges_in.setdefault(tgt, []).append(src)
 
-    # Build a quick type lookup
+    # Quick type lookup: node_id -> type string
     node_type_map: Dict[str, str] = {
         n["id"]: n.get("type", "") for n in graph_json.get("nodes", [])
     }
 
     # ------------------------------------------------------------------
+    # Determine which parallel node "owns" each branch node.
+    #
+    # A branch node is any node that is a direct successor of a parallel node.
+    # We walk the edge list and record:
+    #   branch_to_parallel: node_id -> parallel_node_id
+    #
+    # For merge nodes we also record which parallel block they belong to by
+    # finding the parallel ancestor reachable through their incoming edges.
+    # ------------------------------------------------------------------
+
+    branch_to_parallel: Dict[str, str] = {}
+    for src, targets in edges_out.items():
+        if node_type_map.get(src) == "parallel":
+            for tgt in targets:
+                branch_to_parallel[tgt] = src
+
+    # For merge nodes: find the parallel node that feeds into them by tracing
+    # backwards through immediate predecessors of the merge node.
+    merge_to_parallel: Dict[str, str] = {}
+    for node in graph_json.get("nodes", []):
+        if node.get("type") != "merge":
+            continue
+        nid = node["id"]
+        upstream = edges_in.get(nid, [])
+        for up in upstream:
+            pid = branch_to_parallel.get(up)
+            if pid:
+                merge_to_parallel[nid] = pid
+                break
+        # Fallback: if a branch node connects directly from the parallel
+        if nid not in merge_to_parallel:
+            for up in upstream:
+                if node_type_map.get(up) == "parallel":
+                    merge_to_parallel[nid] = up
+                    break
+
+    # ------------------------------------------------------------------
     # Register nodes (skip completed)
     # ------------------------------------------------------------------
+
     for node in graph_json.get("nodes", []):
         node_id = node.get("id")
         ntype = node.get("type")
@@ -600,12 +722,14 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
             g.add_node(node_id, func)
 
         elif ntype == "merge":
+            pid = merge_to_parallel.get(node_id, "")
             upstream_ids = edges_in.get(node_id, [])
-            func = make_merge_node(node, execution_id, upstream_ids)
+            func = make_merge_node(node, execution_id, parallel_id=pid, upstream_node_ids=upstream_ids)
             g.add_node(node_id, func)
 
         elif ntype in NODE_FACTORY:
-            func = NODE_FACTORY[ntype](node, execution_id)
+            pid = branch_to_parallel.get(node_id)
+            func = NODE_FACTORY[ntype](node, execution_id, parallel_id=pid)
             g.add_node(node_id, func)
 
             if ntype == "form":
@@ -620,6 +744,7 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
     # ------------------------------------------------------------------
     # Keep only edges between registered nodes
     # ------------------------------------------------------------------
+
     valid_node_ids = {n["id"] for n in temp_graph_json["nodes"]}
     for e in all_edges:
         if e.get("source") in valid_node_ids and e.get("target") in valid_node_ids:
@@ -628,6 +753,7 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
     # ------------------------------------------------------------------
     # Wire edges grouped by source
     # ------------------------------------------------------------------
+
     edges_by_source: Dict[str, List[Dict[str, Any]]] = {}
     for e in temp_graph_json.get("edges", []):
         if current_pause_form_id and e.get("source") == current_pause_form_id:
@@ -639,7 +765,6 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
 
         # ---- Parallel node: fan-out via Send ----
         if src_type == "parallel":
-            # Collect all unique targets preserving insertion order
             branch_targets: List[str] = []
             seen: set = set()
             for e in edges:
@@ -649,13 +774,12 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
                     seen.add(tgt)
 
             router = make_parallel_router(source, branch_targets)
-            # Map each target to itself (identity) so LangGraph knows the reachable nodes
             path_map = {tgt: tgt for tgt in branch_targets}
             path_map[END] = END
             g.add_conditional_edges(source, router, path_map)
-            logger.info("[build] Parallel fan-out from %s -> %s", source, branch_targets)
+            logger.info("[build] Parallel fan-out: %s -> %s", source, branch_targets)
 
-        # ---- Conditional edges (decision branches) ----
+        # ---- Conditional edges (decision / rule-based routing) ----
         elif any(e.get("condition") for e in edges):
             def conditional_fn(state, edges=edges):
                 for edge in edges:
@@ -682,6 +806,7 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
     # ------------------------------------------------------------------
     # Entry point and terminal edges
     # ------------------------------------------------------------------
+
     if temp_graph_json.get("nodes"):
         entry = temp_graph_json["nodes"][0]["id"]
         g.set_entry_point(entry)
@@ -690,9 +815,9 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
             g.add_edge(current_pause_form_id, END)
         else:
             last = temp_graph_json["nodes"][-1]["id"]
-            # Only add END edge if the last node is not a parallel node
-            # (parallel nodes already wire themselves through the router)
-            if node_type_map.get(last) != "parallel":
+            last_type = node_type_map.get(last)
+            # Parallel nodes wire themselves via the router; don't add a duplicate END edge
+            if last_type != "parallel":
                 g.add_edge(last, END)
     else:
         g.set_entry_point(END)
@@ -700,7 +825,7 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
     logger.debug(
         "Graph compiled (nodes=%d, edges=%d)",
         len(temp_graph_json["nodes"]),
-        len(temp_graph_json["edges"])
+        len(temp_graph_json["edges"]),
     )
 
     return g.compile()
