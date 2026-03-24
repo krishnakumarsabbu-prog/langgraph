@@ -6,6 +6,8 @@ import uuid
 import copy
 import logging
 import datetime as dt
+import threading
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
 import requests
 
@@ -34,6 +36,51 @@ if not logger.handlers:
     ))
     logger.addHandler(h)
 logger.setLevel(logging.INFO)
+
+# ==============================================================================
+# Circuit breaker registry (per process, keyed by service node_id)
+# ==============================================================================
+
+_circuit_registry: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
+    "failures": 0,
+    "last_failure_at": None,
+    "open": False,
+})
+_circuit_lock = threading.Lock()
+
+CIRCUIT_FAILURE_THRESHOLD: int = int(os.getenv("CIRCUIT_FAILURE_THRESHOLD", "5"))
+CIRCUIT_RESET_AFTER_S: float = float(os.getenv("CIRCUIT_RESET_AFTER_S", "60"))
+
+
+def _circuit_is_open(node_id: str) -> bool:
+    with _circuit_lock:
+        cb = _circuit_registry[node_id]
+        if not cb["open"]:
+            return False
+        last = cb["last_failure_at"]
+        if last and (dt.datetime.utcnow() - last).total_seconds() > CIRCUIT_RESET_AFTER_S:
+            cb["open"] = False
+            cb["failures"] = 0
+            return False
+        return True
+
+
+def _circuit_record_failure(node_id: str) -> None:
+    with _circuit_lock:
+        cb = _circuit_registry[node_id]
+        cb["failures"] += 1
+        cb["last_failure_at"] = dt.datetime.utcnow()
+        if cb["failures"] >= CIRCUIT_FAILURE_THRESHOLD:
+            cb["open"] = True
+            logger.warning("[circuit-breaker:%s] opened after %d failures", node_id, cb["failures"])
+
+
+def _circuit_record_success(node_id: str) -> None:
+    with _circuit_lock:
+        cb = _circuit_registry[node_id]
+        cb["failures"] = 0
+        cb["open"] = False
+
 
 # ==============================================================================
 # Helpers: deep_get / render_template / _validate_service_url
@@ -102,6 +149,7 @@ def _validate_service_url(url: str) -> None:
 #     "results":    {"branch-a": {...}},         # per-branch output snapshot
 #     "started_at": <iso-timestamp>,            # for timeout detection
 #     "merged":     False,                      # idempotency guard for merge
+#     "merge_strategy": {"field": "sum|append|last"},  # optional conflict resolution
 # }
 #
 # Rules:
@@ -113,10 +161,15 @@ def _validate_service_url(url: str) -> None:
 #   - Merge checks `merged` flag before executing to prevent re-execution if
 #     LangGraph re-invokes the node after it already completed.
 #   - After merge succeeds the context is cleaned up to avoid memory growth.
+#   - Nested parallel blocks are isolated via their own node_id namespace key.
 # ==============================================================================
 
-def _init_parallel_context(state: Dict[str, Any], parallel_id: str, branch_targets: List[str]) -> None:
-    """Initialise context for a parallel block. Called ONCE in parallel run_fn."""
+def _init_parallel_context(
+    state: Dict[str, Any],
+    parallel_id: str,
+    branch_targets: List[str],
+    merge_strategy: Optional[Dict[str, str]] = None,
+) -> None:
     if "_parallel" not in state:
         state["_parallel"] = {}
     state["_parallel"][parallel_id] = {
@@ -125,18 +178,11 @@ def _init_parallel_context(state: Dict[str, Any], parallel_id: str, branch_targe
         "results": {},
         "started_at": dt.datetime.utcnow().isoformat(),
         "merged": False,
+        "merge_strategy": merge_strategy or {},
     }
 
 
 def _branch_state_copy(state: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Efficient branch-safe copy.
-
-    Shallow-copies the top-level state dict (O(n) keys, avoids deep-copying
-    large user payloads) and deep-copies only the `_parallel` tracking structure
-    so each branch has an isolated view of completion tracking without paying
-    the full deepcopy cost.
-    """
     branch = {k: v for k, v in state.items() if k != "_parallel"}
     if "_parallel" in state:
         branch["_parallel"] = copy.deepcopy(state["_parallel"])
@@ -144,13 +190,19 @@ def _branch_state_copy(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _mark_branch_completed(state: Dict[str, Any], parallel_id: str, branch_node_id: str) -> None:
-    """Idempotent: safe to call multiple times for the same branch (retries)."""
     pctx = state.get("_parallel", {}).get(parallel_id)
     if pctx is None:
         return
     if branch_node_id not in pctx["completed"]:
         pctx["completed"].append(branch_node_id)
     pctx["results"][branch_node_id] = state.get(branch_node_id)
+
+    expected = len(pctx["expected"])
+    done = len(pctx["completed"])
+    logger.info(
+        "[merge-progress:%s] %d/%d branches completed",
+        parallel_id, done, expected
+    )
 
 
 def _all_branches_done(state: Dict[str, Any], parallel_id: str) -> bool:
@@ -160,11 +212,14 @@ def _all_branches_done(state: Dict[str, Any], parallel_id: str) -> bool:
     return set(pctx["expected"]).issubset(set(pctx["completed"]))
 
 
+def _get_branch_timeout(state: Dict[str, Any], parallel_id: str) -> float:
+    pctx = state.get("_parallel", {}).get(parallel_id)
+    if pctx and pctx.get("timeout_s"):
+        return float(pctx["timeout_s"])
+    return PARALLEL_BRANCH_TIMEOUT_S
+
+
 def _check_branch_timeout(state: Dict[str, Any], parallel_id: str) -> Optional[List[str]]:
-    """
-    Returns list of timed-out branch node IDs if PARALLEL_BRANCH_TIMEOUT_S has
-    elapsed since the parallel block started, otherwise returns None.
-    """
     pctx = state.get("_parallel", {}).get(parallel_id)
     if not pctx:
         return None
@@ -172,7 +227,8 @@ def _check_branch_timeout(state: Dict[str, Any], parallel_id: str) -> Optional[L
     if not started_at_str:
         return None
     elapsed = (dt.datetime.utcnow() - dt.datetime.fromisoformat(started_at_str)).total_seconds()
-    if elapsed < PARALLEL_BRANCH_TIMEOUT_S:
+    timeout = _get_branch_timeout(state, parallel_id)
+    if elapsed < timeout:
         return None
     expected = set(pctx["expected"])
     completed = set(pctx["completed"])
@@ -180,7 +236,6 @@ def _check_branch_timeout(state: Dict[str, Any], parallel_id: str) -> Optional[L
 
 
 def _cleanup_parallel_context(state: Dict[str, Any], parallel_id: str) -> None:
-    """Remove parallel tracking data after merge completes to prevent memory growth."""
     parallel_ns = state.get("_parallel")
     if parallel_ns and parallel_id in parallel_ns:
         del parallel_ns[parallel_id]
@@ -188,11 +243,51 @@ def _cleanup_parallel_context(state: Dict[str, Any], parallel_id: str) -> None:
             del state["_parallel"]
 
 
+def _apply_merge_strategy(
+    merged: Dict[str, Any],
+    branch_id: str,
+    branch_result: Any,
+    strategy: Dict[str, str],
+) -> None:
+    if not isinstance(branch_result, dict) or not strategy:
+        merged[branch_id] = branch_result
+        return
+
+    merged[branch_id] = branch_result
+
+    response = branch_result.get("response") if isinstance(branch_result, dict) else None
+    if not isinstance(response, dict):
+        return
+
+    for field, rule in strategy.items():
+        val = response.get(field)
+        if val is None:
+            continue
+        existing = merged.get(f"__merged_{field}")
+        if rule == "sum":
+            merged[f"__merged_{field}"] = (existing or 0) + (val if isinstance(val, (int, float)) else 0)
+        elif rule == "append":
+            base = existing if isinstance(existing, list) else []
+            if isinstance(val, list):
+                base = base + val
+            else:
+                base = base + [val]
+            merged[f"__merged_{field}"] = base
+        elif rule == "last":
+            merged[f"__merged_{field}"] = val
+
+
 # ==============================================================================
 # Node: Service Node
 # ==============================================================================
 
-def make_service_node(node_data: Dict[str, Any], execution_id: str, parallel_id: Optional[str] = None):
+def make_service_node(
+    node_data: Dict[str, Any],
+    execution_id: str,
+    parallel_id: Optional[str] = None,
+    retry_policy: Optional[Dict[str, Any]] = None,
+    node_timeout_s: Optional[float] = None,
+):
     data_cfg = node_data.get("data", {})
     url = data_cfg.get("url")
     method = data_cfg.get("method", "POST").upper()
@@ -225,10 +320,53 @@ def make_service_node(node_data: Dict[str, Any], execution_id: str, parallel_id:
 
     mappings = data_cfg.get("mappings", [])
 
+    _retry = retry_policy or data_cfg.get("retryPolicy") or {}
+    max_attempts: int = int(_retry.get("max_attempts", 1))
+    backoff_strategy: str = _retry.get("backoff", "none")
+    _timeout_s = node_timeout_s or data_cfg.get("timeout") or 15
+
+    def _call_service(payload: Any) -> tuple:
+        resp_data: Dict[str, Any] = {}
+        error_msg: Optional[str] = None
+        ok = False
+        try:
+            if is_xml:
+                resp = requests.request(method, url, data=payload, headers=headers, timeout=_timeout_s)
+            else:
+                resp = requests.request(method, url, json=payload, headers=headers, timeout=_timeout_s)
+
+            if resp.ok:
+                try:
+                    resp_data = resp.json()
+                except ValueError:
+                    resp_data = {"raw": resp.text}
+                ok = True
+            else:
+                resp_data = {"error": resp.text, "status_code": resp.status_code}
+                error_msg = resp.text
+        except Exception as e:
+            resp_data = {"error": str(e)}
+            error_msg = str(e)
+        return ok, resp_data, error_msg
+
     def run_fn(state: Dict[str, Any]):
         start_time = dt.datetime.utcnow()
         node_id = node_data["id"]
         node_label = data_cfg.get("label", node_id)
+
+        if _circuit_is_open(node_id):
+            msg = "circuit_open"
+            logger.warning("[service:%s] circuit breaker open — skipping call", node_label)
+            save_node_execution(
+                execution_id, node_id, node_type="service", node_label=node_label,
+                status="failed", request_data=None, response_data={"error": msg},
+                error_msg=msg, exec_time=0
+            )
+            update_service_metrics(node_id, success=False, exec_time_ms=0)
+            state[node_id] = {"error": msg}
+            if parallel_id:
+                _mark_branch_completed(state, parallel_id, node_id)
+            return state
 
         try:
             _validate_service_url(url)
@@ -273,26 +411,28 @@ def make_service_node(node_data: Dict[str, Any], execution_id: str, parallel_id:
         error_msg = None
         resp_data: Dict[str, Any] = {}
 
-        try:
-            if is_xml:
-                resp = requests.request(method, url, data=payload, headers=headers, timeout=15)
-            else:
-                resp = requests.request(method, url, json=payload, headers=headers, timeout=15)
+        for attempt in range(max(1, max_attempts)):
+            if attempt > 0:
+                delay = 0.0
+                if backoff_strategy == "exponential":
+                    delay = (2 ** attempt) * 0.5
+                elif backoff_strategy == "linear":
+                    delay = attempt * 1.0
+                if delay > 0:
+                    import time
+                    time.sleep(delay)
+                logger.info("[service:%s] retry attempt %d/%d", node_label, attempt + 1, max_attempts)
 
-            if resp.ok:
-                try:
-                    resp_data = resp.json()
-                except ValueError:
-                    resp_data = {"raw": resp.text}
-                ok = True
-            else:
-                resp_data = {"error": resp.text, "status_code": resp.status_code}
-                error_msg = resp.text
-        except Exception as e:
-            resp_data = {"error": str(e)}
-            error_msg = str(e)
+            ok, resp_data, error_msg = _call_service(payload)
+            if ok:
+                break
 
         exec_time = int((dt.datetime.utcnow() - start_time).total_seconds() * 1000)
+
+        if ok:
+            _circuit_record_success(node_id)
+        else:
+            _circuit_record_failure(node_id)
 
         save_node_execution(
             execution_id, node_id, node_type="service", node_label=node_label,
@@ -307,7 +447,6 @@ def make_service_node(node_data: Dict[str, Any], execution_id: str, parallel_id:
             "_metrics": {"last_exec_ms": exec_time, "success": ok},
         }
 
-        # Register completion in parallel context if this node is a branch node
         if parallel_id:
             _mark_branch_completed(state, parallel_id, node_id)
 
@@ -508,18 +647,21 @@ def make_subworkflow_node(node_data: Dict[str, Any], execution_id: str, parallel
 # Lifecycle:
 #   1. run_fn  — records execution metrics AND initialises the namespaced
 #                _parallel[node_id] context (expected branches, timestamps,
-#                merged=False guard).  This is the ONLY place init happens.
+#                merged=False guard, optional merge_strategy and per-node
+#                timeout_s).  This is the ONLY place init happens.
 #   2. router  — attached via add_conditional_edges.  Uses _branch_state_copy
 #                (shallow copy of user payload + deepcopy of only the _parallel
 #                tracking dict) so branches are isolated without the full cost
 #                of copy.deepcopy on arbitrarily large states.  Does NOT
 #                re-initialise the context — reads what run_fn already set.
 #
-# Multiple parallel blocks are fully isolated: each uses its own node_id as
-# the namespace key in state["_parallel"].
+# Multiple and nested parallel blocks are fully isolated: each uses its own
+# node_id as the namespace key in state["_parallel"].  Nested parallel blocks
+# get unique keys because their node_ids differ, preventing namespace collision.
 #
 # Frontend data shape:
-#   { id: "parallel-1", type: "parallel", data: { label: "...", outputCount: N } }
+#   { id: "parallel-1", type: "parallel", data: { label: "...", outputCount: N,
+#     mergeStrategy: {"field": "sum|append|last"}, timeout: 30 } }
 # ==============================================================================
 
 def make_parallel_node(node_data: Dict[str, Any], execution_id: str, branch_targets: List[str]):
@@ -527,12 +669,16 @@ def make_parallel_node(node_data: Dict[str, Any], execution_id: str, branch_targ
     data_cfg = node_data.get("data", {})
     node_label = data_cfg.get("label", node_id)
     output_count = int(data_cfg.get("outputCount", 2))
+    merge_strategy: Dict[str, str] = data_cfg.get("mergeStrategy") or {}
+    node_timeout_s: Optional[float] = data_cfg.get("timeout")
 
     def run_fn(state: Dict[str, Any]):
         start_time = dt.datetime.utcnow()
 
-        # Initialise parallel context HERE — once — before the router fires
-        _init_parallel_context(state, node_id, branch_targets)
+        _init_parallel_context(state, node_id, branch_targets, merge_strategy=merge_strategy)
+
+        if node_timeout_s is not None:
+            state["_parallel"][node_id]["timeout_s"] = float(node_timeout_s)
 
         exec_time = int((dt.datetime.utcnow() - start_time).total_seconds() * 1000)
 
@@ -560,15 +706,6 @@ def make_parallel_node(node_data: Dict[str, Any], execution_id: str, branch_targ
 
 
 def make_parallel_router(parallel_id: str, branch_targets: List[str]):
-    """
-    Router attached as a conditional edge FROM the parallel node.
-
-    Uses _branch_state_copy per branch:
-      - shallow-copies all user payload keys (avoids expensive deepcopy)
-      - deep-copies only the _parallel tracking dict so each branch has an
-        independent view of completion state
-    Does NOT re-initialise the context — that was already done in run_fn.
-    """
     def router(state: Dict[str, Any]) -> List[Send]:
         sends: List[Send] = []
         for target in branch_targets:
@@ -587,23 +724,20 @@ def make_parallel_router(parallel_id: str, branch_targets: List[str]):
 # ==============================================================================
 # Node: Merge Node
 #
-# Fan-in collector with barrier, idempotency guard, timeout soft-fail, and
-# post-merge cleanup.
+# Fan-in collector with barrier, idempotency guard, timeout soft-fail, ordered
+# merge, merge strategy application, and post-merge cleanup.
 #
 # Runtime flow:
 #   1. Idempotency guard — if state[node_id] already exists with a "merged"
-#      key the node returns immediately.  Protects against LangGraph re-invoking
-#      the node after it already completed.
-#   2. Timeout check — if PARALLEL_BRANCH_TIMEOUT_S has elapsed since the
-#      parallel block started, any still-pending branches are soft-failed with
-#      a sentinel error value so the graph can continue rather than hang forever.
-#   3. Barrier check — if not all expected branches are done, return state
-#      unchanged so LangGraph can re-invoke when the next branch reports in.
-#   4. Merge — collects branch results from _parallel[parallel_id]["results"],
-#      with a fallback to reading directly from state for any branch that wrote
-#      its result without going through _mark_branch_completed.
-#   5. Cleanup — removes state["_parallel"][parallel_id] after a successful
-#      merge to prevent unbounded memory growth in long workflows.
+#      key the node returns immediately.
+#   2. Timeout check — if the per-node or global timeout has elapsed, any
+#      still-pending branches are soft-failed with a sentinel error value.
+#   3. Barrier check — if not all expected branches are done, returns state
+#      unchanged and logs current progress (completed/expected).
+#   4. Ordered merge — collects branch results in the order defined by
+#      pctx["expected"] for deterministic output, then applies merge strategy
+#      fields (sum / append / last) across branches.
+#   5. Cleanup — removes state["_parallel"][parallel_id] after merge.
 #
 # Frontend data shape:
 #   { id: "merge-1", type: "merge", data: { label: "...", inputCount: N } }
@@ -623,13 +757,11 @@ def make_merge_node(
     def run_fn(state: Dict[str, Any]):
         start_time = dt.datetime.utcnow()
 
-        # --- Fix 3: Idempotency guard ---
         existing = state.get(node_id)
         if isinstance(existing, dict) and existing.get("_merged"):
             logger.info("[merge:%s] already merged — skipping re-execution", node_label)
             return state
 
-        # --- Fix 5: Timeout soft-fail ---
         timed_out = _check_branch_timeout(state, parallel_id)
         if timed_out:
             logger.warning(
@@ -645,23 +777,27 @@ def make_merge_node(
                 if stuck_id not in pctx.get("completed", []):
                     pctx.setdefault("completed", []).append(stuck_id)
 
-        # --- Fix 3: Barrier check (after potential timeout promotion) ---
         if not _all_branches_done(state, parallel_id):
             pctx = state.get("_parallel", {}).get(parallel_id, {})
+            done = len(pctx.get("completed", []))
+            expected = len(pctx.get("expected", []))
             logger.info(
-                "[merge:%s] barrier waiting — completed=%s expected=%s",
-                node_label,
-                pctx.get("completed", []),
-                pctx.get("expected", []),
+                "[merge:%s] barrier waiting — progress: %d/%d branches completed",
+                node_label, done, expected,
             )
             return state
 
-        # Collect results from the namespaced parallel context
         pctx = state["_parallel"][parallel_id]
-        merged_results: Dict[str, Any] = dict(pctx.get("results", {}))
+        results_map = pctx.get("results", {})
+        merge_strategy: Dict[str, str] = pctx.get("merge_strategy", {})
 
-        # Fallback: pick up any upstream result written directly to state
-        # (handles branch nodes that executed before _mark_branch_completed was added)
+        merged_results: Dict[str, Any] = {}
+        for branch_id in pctx["expected"]:
+            result = results_map.get(branch_id)
+            if result is None:
+                result = state.get(branch_id)
+            _apply_merge_strategy(merged_results, branch_id, result, merge_strategy)
+
         for uid in upstream_node_ids:
             if uid not in merged_results:
                 merged_results[uid] = state.get(uid)
@@ -681,14 +817,12 @@ def make_merge_node(
         )
         update_service_metrics(node_id, success=True, exec_time=exec_time)
 
-        # _merged=True acts as the idempotency sentinel on re-invocation
         state[node_id] = {
             "response": {"merged": merged_results},
             "_metrics": {"last_exec_ms": exec_time, "success": True},
             "_merged": True,
         }
 
-        # --- Fix 6: Cleanup parallel context to prevent memory growth ---
         _cleanup_parallel_context(state, parallel_id)
 
         logger.info(
@@ -726,15 +860,9 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
     temp_graph_json: Dict[str, Any] = {"nodes": [], "edges": []}
     current_pause_form_id: Optional[str] = None
 
-    # ------------------------------------------------------------------
-    # Pre-compute topology
-    # ------------------------------------------------------------------
-
     all_edges: List[Dict[str, Any]] = graph_json.get("edges", [])
 
-    # node_id -> list of target node_ids
     edges_out: Dict[str, List[str]] = {}
-    # node_id -> list of source node_ids
     edges_in: Dict[str, List[str]] = {}
 
     for e in all_edges:
@@ -744,21 +872,9 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
             edges_out.setdefault(src, []).append(tgt)
             edges_in.setdefault(tgt, []).append(src)
 
-    # Quick type lookup: node_id -> type string
     node_type_map: Dict[str, str] = {
         n["id"]: n.get("type", "") for n in graph_json.get("nodes", [])
     }
-
-    # ------------------------------------------------------------------
-    # Determine which parallel node "owns" each branch node.
-    #
-    # A branch node is any node that is a direct successor of a parallel node.
-    # We walk the edge list and record:
-    #   branch_to_parallel: node_id -> parallel_node_id
-    #
-    # For merge nodes we also record which parallel block they belong to by
-    # finding the parallel ancestor reachable through their incoming edges.
-    # ------------------------------------------------------------------
 
     branch_to_parallel: Dict[str, str] = {}
     for src, targets in edges_out.items():
@@ -766,8 +882,6 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
             for tgt in targets:
                 branch_to_parallel[tgt] = src
 
-    # For merge nodes: find the parallel node that feeds into them by tracing
-    # backwards through immediate predecessors of the merge node.
     merge_to_parallel: Dict[str, str] = {}
     for node in graph_json.get("nodes", []):
         if node.get("type") != "merge":
@@ -779,16 +893,11 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
             if pid:
                 merge_to_parallel[nid] = pid
                 break
-        # Fallback: if a branch node connects directly from the parallel
         if nid not in merge_to_parallel:
             for up in upstream:
                 if node_type_map.get(up) == "parallel":
                     merge_to_parallel[nid] = up
                     break
-
-    # ------------------------------------------------------------------
-    # Register nodes (skip completed)
-    # ------------------------------------------------------------------
 
     for node in graph_json.get("nodes", []):
         node_id = node.get("id")
@@ -799,7 +908,6 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
             continue
 
         if ntype == "parallel":
-            # Pass branch_targets at build time so run_fn can init context
             parallel_branch_targets = [
                 t for t in edges_out.get(node_id, [])
                 if t in {n["id"] for n in graph_json.get("nodes", [])}
@@ -827,18 +935,10 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
 
         temp_graph_json["nodes"].append(node)
 
-    # ------------------------------------------------------------------
-    # Keep only edges between registered nodes
-    # ------------------------------------------------------------------
-
     valid_node_ids = {n["id"] for n in temp_graph_json["nodes"]}
     for e in all_edges:
         if e.get("source") in valid_node_ids and e.get("target") in valid_node_ids:
             temp_graph_json["edges"].append(e)
-
-    # ------------------------------------------------------------------
-    # Wire edges grouped by source
-    # ------------------------------------------------------------------
 
     edges_by_source: Dict[str, List[Dict[str, Any]]] = {}
     for e in temp_graph_json.get("edges", []):
@@ -849,7 +949,6 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
     for source, edges in edges_by_source.items():
         src_type = node_type_map.get(source, "")
 
-        # ---- Parallel node: fan-out via Send ----
         if src_type == "parallel":
             branch_targets: List[str] = []
             seen: set = set()
@@ -865,7 +964,6 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
             g.add_conditional_edges(source, router, path_map)
             logger.info("[build] Parallel fan-out: %s -> %s", source, branch_targets)
 
-        # ---- Conditional edges (decision / rule-based routing) ----
         elif any(e.get("condition") for e in edges):
             def conditional_fn(state, edges=edges):
                 for edge in edges:
@@ -884,14 +982,9 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
 
             g.add_conditional_edges(source, conditional_fn)
 
-        # ---- Normal sequential edges ----
         else:
             for e in edges:
                 g.add_edge(e.get("source"), e.get("target"))
-
-    # ------------------------------------------------------------------
-    # Entry point and terminal edges
-    # ------------------------------------------------------------------
 
     if temp_graph_json.get("nodes"):
         entry = temp_graph_json["nodes"][0]["id"]
@@ -902,7 +995,6 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
         else:
             last = temp_graph_json["nodes"][-1]["id"]
             last_type = node_type_map.get(last)
-            # Parallel nodes wire themselves via the router; don't add a duplicate END edge
             if last_type != "parallel":
                 g.add_edge(last, END)
     else:
