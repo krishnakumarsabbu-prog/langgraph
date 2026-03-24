@@ -39,6 +39,7 @@ export interface WorkflowNodeData {
 
 export interface ParallelNodeData {
   label: string;
+  outputCount: number;
 }
 
 export interface MergeNodeData {
@@ -227,6 +228,7 @@ export const useLangGraphStore = create<LangGraphState>((set, get) => ({
       position,
       data: {
         label: id,
+        outputCount: 2,
       },
     };
     set({ nodes: [...get().nodes, newNode], selectedNodeId: id });
