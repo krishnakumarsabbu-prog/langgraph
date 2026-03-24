@@ -8,6 +8,9 @@ import logging
 import datetime as dt
 from typing import Any, Dict, List, Optional
 import requests
+
+PARALLEL_BRANCH_TIMEOUT_S: float = float(os.getenv("PARALLEL_BRANCH_TIMEOUT_S", "300"))
+
 from simpleeval import simple_eval
 from langgraph.graph import StateGraph, END
 from langgraph.types import Send
@@ -93,35 +96,55 @@ def _validate_service_url(url: str) -> None:
 # ==============================================================================
 # Parallel state helpers
 #
-# The `_parallel` key in state is a namespace for all parallel execution
-# contexts. Structure:
+# state["_parallel"][parallel_id] = {
+#     "expected":   ["branch-a", "branch-b"],   # set once in parallel run_fn
+#     "completed":  ["branch-a"],               # grows as branches finish
+#     "results":    {"branch-a": {...}},         # per-branch output snapshot
+#     "started_at": <iso-timestamp>,            # for timeout detection
+#     "merged":     False,                      # idempotency guard for merge
+# }
 #
-#   state["_parallel"] = {
-#       "<parallel_node_id>": {
-#           "expected": ["branch-node-a", "branch-node-b", ...],
-#           "completed": ["branch-node-a"],        # grows as branches finish
-#           "results":  {"branch-node-a": {...}},  # per-branch output snapshot
-#       },
-#       ...   # one entry per parallel block — fully isolated
-#   }
-#
-# This design handles:
-#   - Multiple parallel blocks in the same graph (namespaced by parallel_node_id)
-#   - Safe fan-in barrier (merge waits until completed == expected)
-#   - No cross-contamination between blocks
+# Rules:
+#   - Initialised ONCE in the parallel node's run_fn (not in the router).
+#   - Router performs a lightweight copy: shallow-copies the top-level state
+#     dict and deep-copies only the `_parallel` sub-key so every branch starts
+#     with the same tracking context but cannot corrupt sibling branches.
+#   - _mark_branch_completed is idempotent — safe for retries / double-delivery.
+#   - Merge checks `merged` flag before executing to prevent re-execution if
+#     LangGraph re-invokes the node after it already completed.
+#   - After merge succeeds the context is cleaned up to avoid memory growth.
 # ==============================================================================
 
 def _init_parallel_context(state: Dict[str, Any], parallel_id: str, branch_targets: List[str]) -> None:
+    """Initialise context for a parallel block. Called ONCE in parallel run_fn."""
     if "_parallel" not in state:
         state["_parallel"] = {}
     state["_parallel"][parallel_id] = {
         "expected": list(branch_targets),
         "completed": [],
         "results": {},
+        "started_at": dt.datetime.utcnow().isoformat(),
+        "merged": False,
     }
 
 
+def _branch_state_copy(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Efficient branch-safe copy.
+
+    Shallow-copies the top-level state dict (O(n) keys, avoids deep-copying
+    large user payloads) and deep-copies only the `_parallel` tracking structure
+    so each branch has an isolated view of completion tracking without paying
+    the full deepcopy cost.
+    """
+    branch = {k: v for k, v in state.items() if k != "_parallel"}
+    if "_parallel" in state:
+        branch["_parallel"] = copy.deepcopy(state["_parallel"])
+    return branch
+
+
 def _mark_branch_completed(state: Dict[str, Any], parallel_id: str, branch_node_id: str) -> None:
+    """Idempotent: safe to call multiple times for the same branch (retries)."""
     pctx = state.get("_parallel", {}).get(parallel_id)
     if pctx is None:
         return
@@ -134,9 +157,35 @@ def _all_branches_done(state: Dict[str, Any], parallel_id: str) -> bool:
     pctx = state.get("_parallel", {}).get(parallel_id)
     if not pctx:
         return False
+    return set(pctx["expected"]).issubset(set(pctx["completed"]))
+
+
+def _check_branch_timeout(state: Dict[str, Any], parallel_id: str) -> Optional[List[str]]:
+    """
+    Returns list of timed-out branch node IDs if PARALLEL_BRANCH_TIMEOUT_S has
+    elapsed since the parallel block started, otherwise returns None.
+    """
+    pctx = state.get("_parallel", {}).get(parallel_id)
+    if not pctx:
+        return None
+    started_at_str = pctx.get("started_at")
+    if not started_at_str:
+        return None
+    elapsed = (dt.datetime.utcnow() - dt.datetime.fromisoformat(started_at_str)).total_seconds()
+    if elapsed < PARALLEL_BRANCH_TIMEOUT_S:
+        return None
     expected = set(pctx["expected"])
     completed = set(pctx["completed"])
-    return expected.issubset(completed)
+    return list(expected - completed)
+
+
+def _cleanup_parallel_context(state: Dict[str, Any], parallel_id: str) -> None:
+    """Remove parallel tracking data after merge completes to prevent memory growth."""
+    parallel_ns = state.get("_parallel")
+    if parallel_ns and parallel_id in parallel_ns:
+        del parallel_ns[parallel_id]
+        if not parallel_ns:
+            del state["_parallel"]
 
 
 # ==============================================================================
@@ -456,22 +505,24 @@ def make_subworkflow_node(node_data: Dict[str, Any], execution_id: str, parallel
 # ==============================================================================
 # Node: Parallel Node
 #
-# Design:
-#   1. run_fn  — initialises the namespaced `_parallel[node_id]` context in
-#                state (expected branches, empty completed list, empty results).
-#   2. router  — returned by make_parallel_router, attached via
-#                add_conditional_edges.  It deep-copies state once per branch
-#                (prevents mutations from leaking between branches) then issues
-#                one Send(target, branch_state) per downstream node.
+# Lifecycle:
+#   1. run_fn  — records execution metrics AND initialises the namespaced
+#                _parallel[node_id] context (expected branches, timestamps,
+#                merged=False guard).  This is the ONLY place init happens.
+#   2. router  — attached via add_conditional_edges.  Uses _branch_state_copy
+#                (shallow copy of user payload + deepcopy of only the _parallel
+#                tracking dict) so branches are isolated without the full cost
+#                of copy.deepcopy on arbitrarily large states.  Does NOT
+#                re-initialise the context — reads what run_fn already set.
 #
-# Multiple parallel blocks are fully isolated because every block uses its own
-# node_id as the namespace key in state["_parallel"].
+# Multiple parallel blocks are fully isolated: each uses its own node_id as
+# the namespace key in state["_parallel"].
 #
 # Frontend data shape:
 #   { id: "parallel-1", type: "parallel", data: { label: "...", outputCount: N } }
 # ==============================================================================
 
-def make_parallel_node(node_data: Dict[str, Any], execution_id: str):
+def make_parallel_node(node_data: Dict[str, Any], execution_id: str, branch_targets: List[str]):
     node_id = node_data["id"]
     data_cfg = node_data.get("data", {})
     node_label = data_cfg.get("label", node_id)
@@ -479,12 +530,16 @@ def make_parallel_node(node_data: Dict[str, Any], execution_id: str):
 
     def run_fn(state: Dict[str, Any]):
         start_time = dt.datetime.utcnow()
+
+        # Initialise parallel context HERE — once — before the router fires
+        _init_parallel_context(state, node_id, branch_targets)
+
         exec_time = int((dt.datetime.utcnow() - start_time).total_seconds() * 1000)
 
         save_node_execution(
             execution_id, node_id, node_type="parallel", node_label=node_label,
             status="completed",
-            request_data={"output_count": output_count},
+            request_data={"output_count": output_count, "branches": branch_targets},
             response_data={"branching": True},
             error_msg=None, exec_time=exec_time
         )
@@ -495,7 +550,10 @@ def make_parallel_node(node_data: Dict[str, Any], execution_id: str):
             "_metrics": {"last_exec_ms": exec_time, "success": True},
         }
 
-        logger.info("[parallel:%s] Fan-out node visited, outputCount=%d", node_label, output_count)
+        logger.info(
+            "[parallel:%s] initialised fan-out, branches=%s",
+            node_label, branch_targets
+        )
         return state
 
     return run_fn
@@ -505,20 +563,16 @@ def make_parallel_router(parallel_id: str, branch_targets: List[str]):
     """
     Router attached as a conditional edge FROM the parallel node.
 
-    For each branch target:
-      - deep-copies the current state snapshot (prevents branch mutations from
-        leaking into sibling branches)
-      - stamps _parallel[parallel_id].expected with all branch node IDs so the
-        merge barrier knows what to wait for
-      - issues a Send(target, branch_state)
-
-    Returns List[Send] which LangGraph executes concurrently.
+    Uses _branch_state_copy per branch:
+      - shallow-copies all user payload keys (avoids expensive deepcopy)
+      - deep-copies only the _parallel tracking dict so each branch has an
+        independent view of completion state
+    Does NOT re-initialise the context — that was already done in run_fn.
     """
     def router(state: Dict[str, Any]) -> List[Send]:
         sends: List[Send] = []
         for target in branch_targets:
-            branch_state = copy.deepcopy(state)
-            _init_parallel_context(branch_state, parallel_id, branch_targets)
+            branch_state = _branch_state_copy(state)
             sends.append(Send(target, branch_state))
 
         logger.info(
@@ -533,23 +587,23 @@ def make_parallel_router(parallel_id: str, branch_targets: List[str]):
 # ==============================================================================
 # Node: Merge Node
 #
-# Fan-in collector with an explicit barrier.
+# Fan-in collector with barrier, idempotency guard, timeout soft-fail, and
+# post-merge cleanup.
 #
-# Design:
-#   - At graph-build time the merge node receives:
-#       parallel_id       — the ID of the parallel node that owns this merge
-#       upstream_node_ids — the direct predecessors (branch nodes) of this merge
-#   - At runtime:
-#       1. Reads state["_parallel"][parallel_id]["completed"]
-#       2. If not all expected branches are done → returns state unchanged
-#          (LangGraph will invoke the node again when more branches arrive)
-#       3. Once the barrier passes → aggregates all branch results from
-#          state["_parallel"][parallel_id]["results"] and writes them under
-#          state[node_id]
-#
-# Isolation:
-#   Every parallel block writes to its own namespace in state["_parallel"], so
-#   two parallel blocks in the same graph cannot interfere.
+# Runtime flow:
+#   1. Idempotency guard — if state[node_id] already exists with a "merged"
+#      key the node returns immediately.  Protects against LangGraph re-invoking
+#      the node after it already completed.
+#   2. Timeout check — if PARALLEL_BRANCH_TIMEOUT_S has elapsed since the
+#      parallel block started, any still-pending branches are soft-failed with
+#      a sentinel error value so the graph can continue rather than hang forever.
+#   3. Barrier check — if not all expected branches are done, return state
+#      unchanged so LangGraph can re-invoke when the next branch reports in.
+#   4. Merge — collects branch results from _parallel[parallel_id]["results"],
+#      with a fallback to reading directly from state for any branch that wrote
+#      its result without going through _mark_branch_completed.
+#   5. Cleanup — removes state["_parallel"][parallel_id] after a successful
+#      merge to prevent unbounded memory growth in long workflows.
 #
 # Frontend data shape:
 #   { id: "merge-1", type: "merge", data: { label: "...", inputCount: N } }
@@ -569,7 +623,29 @@ def make_merge_node(
     def run_fn(state: Dict[str, Any]):
         start_time = dt.datetime.utcnow()
 
-        # Barrier: wait until all expected branches have completed
+        # --- Fix 3: Idempotency guard ---
+        existing = state.get(node_id)
+        if isinstance(existing, dict) and existing.get("_merged"):
+            logger.info("[merge:%s] already merged — skipping re-execution", node_label)
+            return state
+
+        # --- Fix 5: Timeout soft-fail ---
+        timed_out = _check_branch_timeout(state, parallel_id)
+        if timed_out:
+            logger.warning(
+                "[merge:%s] timeout — soft-failing stuck branches: %s",
+                node_label, timed_out
+            )
+            pctx = state.get("_parallel", {}).get(parallel_id, {})
+            for stuck_id in timed_out:
+                pctx.setdefault("results", {})[stuck_id] = {
+                    "error": "branch_timeout",
+                    "branch_node_id": stuck_id,
+                }
+                if stuck_id not in pctx.get("completed", []):
+                    pctx.setdefault("completed", []).append(stuck_id)
+
+        # --- Fix 3: Barrier check (after potential timeout promotion) ---
         if not _all_branches_done(state, parallel_id):
             pctx = state.get("_parallel", {}).get(parallel_id, {})
             logger.info(
@@ -580,12 +656,12 @@ def make_merge_node(
             )
             return state
 
-        # Collect merged results from the parallel context (branch-namespaced)
+        # Collect results from the namespaced parallel context
         pctx = state["_parallel"][parallel_id]
         merged_results: Dict[str, Any] = dict(pctx.get("results", {}))
 
-        # Also pull any upstream nodes that wrote directly to state
-        # (covers edge cases where a branch node did not use _mark_branch_completed)
+        # Fallback: pick up any upstream result written directly to state
+        # (handles branch nodes that executed before _mark_branch_completed was added)
         for uid in upstream_node_ids:
             if uid not in merged_results:
                 merged_results[uid] = state.get(uid)
@@ -605,10 +681,15 @@ def make_merge_node(
         )
         update_service_metrics(node_id, success=True, exec_time=exec_time)
 
+        # _merged=True acts as the idempotency sentinel on re-invocation
         state[node_id] = {
             "response": {"merged": merged_results},
             "_metrics": {"last_exec_ms": exec_time, "success": True},
+            "_merged": True,
         }
+
+        # --- Fix 6: Cleanup parallel context to prevent memory growth ---
+        _cleanup_parallel_context(state, parallel_id)
 
         logger.info(
             "[merge:%s] barrier passed — merged %d branches from parallel=%s",
@@ -718,7 +799,12 @@ def build_graph_from_json(graph_json: Dict[str, Any], execution_id: str):
             continue
 
         if ntype == "parallel":
-            func = make_parallel_node(node, execution_id)
+            # Pass branch_targets at build time so run_fn can init context
+            parallel_branch_targets = [
+                t for t in edges_out.get(node_id, [])
+                if t in {n["id"] for n in graph_json.get("nodes", [])}
+            ]
+            func = make_parallel_node(node, execution_id, branch_targets=parallel_branch_targets)
             g.add_node(node_id, func)
 
         elif ntype == "merge":
