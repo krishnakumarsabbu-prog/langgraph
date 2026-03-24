@@ -555,6 +555,52 @@ export const LangGraphBuilder: React.FC = () => {
 
     switch (selectedNode.type) {
       case 'parallelNode':
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Number of Outputs</label>
+              <p className="text-xs text-gray-400 mb-3">Set how many parallel branches this node fans out to (2–8).</p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    const current = nodeData.outputCount ?? 2;
+                    if (current > 2) updateNodeData(selectedNode.id, { outputCount: current - 1 });
+                  }}
+                  className="w-8 h-8 rounded border border-gray-300 flex items-center justify-center text-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
+                  disabled={(nodeData.outputCount ?? 2) <= 2}
+                >
+                  −
+                </button>
+                <span className="w-8 text-center text-base font-semibold text-gray-800">{nodeData.outputCount ?? 2}</span>
+                <button
+                  onClick={() => {
+                    const current = nodeData.outputCount ?? 2;
+                    if (current < 8) updateNodeData(selectedNode.id, { outputCount: current + 1 });
+                  }}
+                  className="w-8 h-8 rounded border border-gray-300 flex items-center justify-center text-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
+                  disabled={(nodeData.outputCount ?? 2) >= 8}
+                >
+                  +
+                </button>
+              </div>
+              <div className="mt-3 flex gap-1.5 flex-wrap">
+                {[2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => updateNodeData(selectedNode.id, { outputCount: n })}
+                    className={`px-3 py-1 text-xs rounded border transition-colors ${
+                      (nodeData.outputCount ?? 2) === n
+                        ? 'bg-amber-500 border-amber-500 text-white font-semibold'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
       case 'mergeNode':
         return (
           <div className="text-xs text-gray-500 text-center py-6">
