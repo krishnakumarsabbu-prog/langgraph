@@ -50,6 +50,13 @@ export const ParallelNode: React.FC<ParallelNodeProps> = ({ id, data, selected }
         className="w-3 h-3 bg-gray-400"
         style={{ top: '70%' }}
       />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right32"
+        className="w-3 h-3 bg-gray-400"
+        style={{ top: '70%' }}
+      />
     </div>
   );
 };
