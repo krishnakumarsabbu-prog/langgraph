@@ -7,6 +7,7 @@ import { LangGraphBuilder } from './components/LangGraph/LangGraphBuilder';
 import { LangGraphDashboard } from './components/LangGraph/LangGraphDashboard';
 import { MetricsDashboard } from './components/Metrics/MetricsDashboard';
 import { ExecutionDetailPage } from './components/Metrics/ExecutionDetailPage';
+import ChampionChallengerDashboard from './components/ChampionChallenger/ChampionChallengerDashboard';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
             <Route path="/langgraph/builder/:workflowId" element={<LangGraphBuilder />} />
             <Route path="/metrics" element={<MetricsDashboard />} />
             <Route path="/metrics/execution/:executionId" element={<ExecutionDetailPage />} />
+            <Route path="/champion-challenger" element={<ChampionChallengerDashboard />} />
           </Route>
         </Routes>
 

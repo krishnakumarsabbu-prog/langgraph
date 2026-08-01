@@ -8,7 +8,8 @@ import {
   Sun,
   Moon,
   User,
-  BarChart3
+  BarChart3,
+  GitCompare
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -23,6 +24,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
   const navItems = [
     { path: '/langgraph', label: 'LangGraph Builder', icon: GitBranch },
     { path: '/metrics', label: 'Metrics Dashboard', icon: BarChart3 },
+    { path: '/champion-challenger', label: 'Champion vs Challenger', icon: GitCompare },
   ];
 
   return (
