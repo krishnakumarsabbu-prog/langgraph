@@ -219,583 +219,560 @@ export const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({
   };
 
   const modalContent = (
-    <div className="fixed inset-0 bg-black bg-opacity-70 z-[9999]">
-      <div className="bg-white w-full h-full flex flex-col">
-        <div className="bg-white border-b border-gray-300 px-8 py-6 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">Configure Service Request</h2>
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-6xl h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
+        {/* Header */}
+        <div className="bg-white text-slate-900 px-8 py-5 flex items-center justify-between border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold flex items-center gap-3 text-slate-900">
+                Configure Service Request
+                <span className="text-xs bg-amber-50 text-amber-700 font-mono font-semibold px-2.5 py-0.5 rounded-full border border-amber-200">
+                  HTTP & Payload Node
+                </span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Map nested request payloads with dynamic upstream tokens, configure headers, auth, TLS certificates, and retry logic.
+              </p>
+            </div>
+          </div>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded transition-colors"
+            className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-900 transition-colors"
           >
-            <X className="w-5 h-5 text-gray-600" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
-          <div className="w-1/4 border-r border-gray-200 p-6 overflow-y-auto bg-gray-50/60">
-            <h3 className="text-base font-bold text-gray-900 mb-1">Available Fields</h3>
-            <p className="text-xs text-gray-500 mb-5">Drag fields to the inputs on the right</p>
-            <div className="space-y-2.5">
-              {fieldPaths.map((field) => (
-                <div
-                  key={field}
-                  draggable
-                  onDragStart={() => handleDragStart(field)}
-                  onDragEnd={handleDragEnd}
-                  title={field}
-                  className="bg-white border border-gray-200 hover:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-gray-800 cursor-move hover:bg-amber-50/50 transition-all shadow-sm truncate w-full block"
-                >
-                  {field}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex-1 p-6 overflow-y-auto">
-            <div className="flex gap-2 mb-6 border-b border-gray-200">
-              {(['request', 'headers', 'auth', 'tls', 'advanced'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 font-semibold text-sm capitalize transition-colors ${
-                    activeTab === tab
-                      ? 'text-gray-900 border-b-2 border-gray-700'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {activeTab === 'request' && (
-              <div className="space-y-6">
-                {/* Request Mode Switcher */}
-                <div className="flex items-center justify-between bg-gray-100 p-1.5 rounded-xl border border-gray-300">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setRequestMode('visual')}
-                      className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-all ${
-                        requestMode === 'visual'
-                          ? 'bg-gray-900 text-white shadow-md'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
-                    >
-                      <Layers className="w-4 h-4 text-amber-400" />
-                      Visual Nested Field Mapper (Drag & Drop)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRequestMode('raw')}
-                      className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-all ${
-                        requestMode === 'raw'
-                          ? 'bg-gray-900 text-white shadow-md'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
-                    >
-                      <Code className="w-4 h-4 text-blue-400" />
-                      Raw JSON Textarea
-                    </button>
-                  </div>
-                  <span className="text-xs text-gray-500 font-mono px-3">
-                    Mode: {requestMode === 'visual' ? 'Interactive Visual Tree' : 'Raw Text'}
-                  </span>
-                </div>
-
-                {requestMode === 'visual' ? (
-                  <VisualPayloadMapper
-                    initialRequestBody={config.requestBody}
-                    onChange={(newJson) => setConfig({ ...config, requestBody: newJson })}
-                    initialInputs={initialInputs}
-                  />
-                ) : (
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-bold text-gray-800">Raw Request Body JSON</h3>
-                    <p className="text-sm text-gray-600">
-                      Drop fields here or type manually. Use single braces {'{'} and {'}'} to wrap field references.
-                    </p>
-                    <textarea
-                      value={config.requestBody}
-                      onChange={(e) => setConfig({ ...config, requestBody: e.target.value })}
-                      onDrop={(e) => handleDrop(e, 'requestBody')}
-                      onDragOver={handleDragOver}
-                      className="w-full h-96 px-6 py-4 text-base font-mono border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white resize-none"
-                      placeholder='{\n  "key": "{input.field.name}",\n  "value": "static value"\n}'
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'headers' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-gray-800">HTTP Headers</h3>
-                  <Button
-                    onClick={addHeader}
-                    className="bg-gray-700 hover:bg-gray-800 text-white"
-                    size="sm"
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    Add Header
-                  </Button>
-                </div>
-                <div className="space-y-3">
-                  {config.headers.map((header, index) => (
-                    <div key={index} className="flex gap-3 items-center">
-                      <input
-                        type="text"
-                        placeholder="Header Name"
-                        value={header.key}
-                        onChange={(e) => updateHeader(index, 'key', e.target.value)}
-                        className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Header Value"
-                        value={header.value}
-                        onChange={(e) => updateHeader(index, 'value', e.target.value)}
-                        className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                      <button
-                        onClick={() => removeHeader(index)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                  {config.headers.length === 0 && (
-                    <p className="text-sm text-gray-500 italic">No headers added yet</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'auth' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold text-gray-800">Authentication</h3>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Auth Type</label>
-                  <select
-                    value={config.authType}
-                    onChange={(e) => setConfig({ ...config, authType: e.target.value as any })}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  >
-                    <option value="none">None</option>
-                    <option value="bearer">Bearer Token</option>
-                    <option value="basic">Basic Auth</option>
-                    <option value="oauth2">OAuth 2.0</option>
-                    <option value="api-key">API Key</option>
-                  </select>
-                </div>
-
-                {config.authType === 'bearer' && (
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Bearer Token</label>
-                    <input
-                      type="password"
-                      placeholder="Enter bearer token"
-                      value={config.authConfig.bearerToken || ''}
-                      onChange={(e) => setConfig({
-                        ...config,
-                        authConfig: { ...config.authConfig, bearerToken: e.target.value }
-                      })}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                    />
-                  </div>
-                )}
-
-                {config.authType === 'basic' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Username</label>
-                      <input
-                        type="text"
-                        placeholder="Enter username"
-                        value={config.authConfig.basicUsername || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          authConfig: { ...config.authConfig, basicUsername: e.target.value }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Password</label>
-                      <input
-                        type="password"
-                        placeholder="Enter password"
-                        value={config.authConfig.basicPassword || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          authConfig: { ...config.authConfig, basicPassword: e.target.value }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {config.authType === 'oauth2' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Client ID</label>
-                      <input
-                        type="text"
-                        placeholder="Enter client ID"
-                        value={config.authConfig.oauth2ClientId || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          authConfig: { ...config.authConfig, oauth2ClientId: e.target.value }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Client Secret</label>
-                      <input
-                        type="password"
-                        placeholder="Enter client secret"
-                        value={config.authConfig.oauth2ClientSecret || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          authConfig: { ...config.authConfig, oauth2ClientSecret: e.target.value }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Token URL</label>
-                      <input
-                        type="text"
-                        placeholder="https://oauth.example.com/token"
-                        value={config.authConfig.oauth2TokenUrl || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          authConfig: { ...config.authConfig, oauth2TokenUrl: e.target.value }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Scope (optional)</label>
-                      <input
-                        type="text"
-                        placeholder="read write"
-                        value={config.authConfig.oauth2Scope || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          authConfig: { ...config.authConfig, oauth2Scope: e.target.value }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {config.authType === 'api-key' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Header Name</label>
-                      <input
-                        type="text"
-                        placeholder="X-API-Key"
-                        value={config.authConfig.apiKeyHeader || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          authConfig: { ...config.authConfig, apiKeyHeader: e.target.value }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">API Key</label>
-                      <input
-                        type="password"
-                        placeholder="Enter API key"
-                        value={config.authConfig.apiKeyValue || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          authConfig: { ...config.authConfig, apiKeyValue: e.target.value }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'tls' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold text-gray-800">TLS/SSL Configuration</h3>
-
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="tlsEnabled"
-                    checked={config.tlsConfig.enabled}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      tlsConfig: { ...config.tlsConfig, enabled: e.target.checked }
-                    })}
-                    className="w-4 h-4 text-gray-700 rounded focus:ring-gray-400"
-                  />
-                  <label htmlFor="tlsEnabled" className="text-sm font-semibold text-gray-700">
-                    Enable TLS/SSL
-                  </label>
-                </div>
-
-                {config.tlsConfig.enabled && (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        id="verifyCert"
-                        checked={config.tlsConfig.verifyCertificate}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          tlsConfig: { ...config.tlsConfig, verifyCertificate: e.target.checked }
-                        })}
-                        className="w-4 h-4 text-gray-700 rounded focus:ring-gray-400"
-                      />
-                      <label htmlFor="verifyCert" className="text-sm font-semibold text-gray-700">
-                        Verify Server Certificate
-                      </label>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Client Certificate
-                      </label>
-
-                      <div className="mb-3">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Certificate File Path
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="/path/to/certificate.pem"
-                          value={config.tlsConfig.clientCertificatePath || ''}
-                          onChange={(e) => setConfig({
-                            ...config,
-                            tlsConfig: { ...config.tlsConfig, clientCertificatePath: e.target.value }
-                          })}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                        />
-                      </div>
-
-                      <div className="mb-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-xs font-medium text-gray-600">
-                            Upload Certificate File
-                          </label>
-                          <input
-                            type="file"
-                            id="cert-file-upload"
-                            accept=".pem,.crt,.cer"
-                            onChange={handleCertificateFileSelect}
-                            className="hidden"
-                            disabled={uploadingCert}
-                          />
-                          <label
-                            htmlFor="cert-file-upload"
-                            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
-                              uploadingCert
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : 'bg-gray-600 hover:bg-gray-700 text-white'
-                            }`}
-                          >
-                            {uploadingCert ? (
-                              <>
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Uploading...
-                              </>
-                            ) : (
-                              <>
-                                <Upload className="w-3 h-3" />
-                                Upload File
-                              </>
-                            )}
-                          </label>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Or Paste Certificate (PEM format)
-                        </label>
-                        <textarea
-                          placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                          value={config.tlsConfig.clientCertificate || ''}
-                          onChange={(e) => setConfig({
-                            ...config,
-                            tlsConfig: { ...config.tlsConfig, clientCertificate: e.target.value }
-                          })}
-                          className="w-full h-32 px-3 py-2 text-xs font-mono border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400 resize-none"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Client Private Key
-                      </label>
-
-                      <div className="mb-3">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Private Key File Path
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="/path/to/private-key.pem"
-                          value={config.tlsConfig.clientKeyPath || ''}
-                          onChange={(e) => setConfig({
-                            ...config,
-                            tlsConfig: { ...config.tlsConfig, clientKeyPath: e.target.value }
-                          })}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                        />
-                      </div>
-
-                      <div className="mb-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-xs font-medium text-gray-600">
-                            Upload Private Key File
-                          </label>
-                          <input
-                            type="file"
-                            id="key-file-upload"
-                            accept=".pem,.key"
-                            onChange={handleKeyFileSelect}
-                            className="hidden"
-                            disabled={uploadingKey}
-                          />
-                          <label
-                            htmlFor="key-file-upload"
-                            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
-                              uploadingKey
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : 'bg-gray-600 hover:bg-gray-700 text-white'
-                            }`}
-                          >
-                            {uploadingKey ? (
-                              <>
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Uploading...
-                              </>
-                            ) : (
-                              <>
-                                <Upload className="w-3 h-3" />
-                                Upload File
-                              </>
-                            )}
-                          </label>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Or Paste Private Key (PEM format)
-                        </label>
-                        <textarea
-                          placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-                          value={config.tlsConfig.clientKey || ''}
-                          onChange={(e) => setConfig({
-                            ...config,
-                            tlsConfig: { ...config.tlsConfig, clientKey: e.target.value }
-                          })}
-                          className="w-full h-32 px-3 py-2 text-xs font-mono border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400 resize-none"
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'advanced' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold text-gray-800">Advanced Settings</h3>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Timeout (milliseconds)
-                  </label>
-                  <input
-                    type="number"
-                    value={config.timeout}
-                    onChange={(e) => setConfig({ ...config, timeout: parseInt(e.target.value) || 30000 })}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  />
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="retryEnabled"
-                    checked={config.retryConfig.enabled}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      retryConfig: { ...config.retryConfig, enabled: e.target.checked }
-                    })}
-                    className="w-4 h-4 text-gray-700 rounded focus:ring-gray-400"
-                  />
-                  <label htmlFor="retryEnabled" className="text-sm font-semibold text-gray-700">
-                    Enable Retry on Failure
-                  </label>
-                </div>
-
-                {config.retryConfig.enabled && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Max Retries
-                      </label>
-                      <input
-                        type="number"
-                        value={config.retryConfig.maxRetries}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          retryConfig: { ...config.retryConfig, maxRetries: parseInt(e.target.value) || 3 }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Retry Delay (milliseconds)
-                      </label>
-                      <input
-                        type="number"
-                        value={config.retryConfig.retryDelay}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          retryConfig: { ...config.retryConfig, retryDelay: parseInt(e.target.value) || 1000 }
-                        })}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-400"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+        {/* Tab Navigation */}
+        <div className="bg-slate-100/80 border-b border-slate-200 px-8 pt-3 flex gap-2">
+          {(['request', 'headers', 'auth', 'tls', 'advanced'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-5 py-2.5 text-xs font-bold rounded-t-xl capitalize transition-all ${
+                activeTab === tab
+                  ? 'bg-white text-slate-950 border-t-2 border-x border-amber-500 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              {tab === 'request' && '📥 Service Request Payload'}
+              {tab === 'headers' && '🔑 HTTP Headers'}
+              {tab === 'auth' && '🔒 Authentication'}
+              {tab === 'tls' && '🛡️ TLS / SSL Certificates'}
+              {tab === 'advanced' && '⚙️ Timeouts & Retries'}
+            </button>
+          ))}
         </div>
 
-        <div className="border-t border-gray-200 px-8 py-6 flex justify-end gap-4">
-          <Button variant="outline" onClick={onClose} className="px-6 py-3 text-base">
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            className="bg-gray-700 hover:bg-gray-800 text-white px-8 py-3 text-base"
-          >
-            Save Configuration
-          </Button>
+        {/* Main Content Area (Full Width - Left Panel Removed) */}
+        <div className="flex-1 p-8 overflow-y-auto bg-slate-50/40">
+          {activeTab === 'request' && (
+            <div className="space-y-6">
+              {/* Request Mode Switcher */}
+              <div className="flex items-center justify-between bg-white p-2 rounded-2xl border border-slate-200 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRequestMode('visual')}
+                    className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-2 transition-all ${
+                      requestMode === 'visual'
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4 text-amber-400" />
+                    Visual Nested Field Mapper (Drag & Drop)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequestMode('raw')}
+                    className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-2 transition-all ${
+                      requestMode === 'raw'
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Code className="w-4 h-4 text-blue-400" />
+                    Raw JSON Textarea
+                  </button>
+                </div>
+                <span className="text-xs text-slate-500 font-mono px-3">
+                  Mode: <strong className="text-slate-800 uppercase">{requestMode}</strong>
+                </span>
+              </div>
+
+              {requestMode === 'visual' ? (
+                <VisualPayloadMapper
+                  initialRequestBody={config.requestBody}
+                  onChange={(newJson) => setConfig({ ...config, requestBody: newJson })}
+                  initialInputs={initialInputs}
+                />
+              ) : (
+                <div className="space-y-3 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                  <h3 className="text-sm font-bold text-slate-900">Raw Request Body JSON</h3>
+                  <p className="text-xs text-slate-500">
+                    Drop fields here or type manually. Use single braces <code className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded font-mono">{'{input.field}'}</code> to wrap dynamic variable tokens.
+                  </p>
+                  <textarea
+                    value={config.requestBody}
+                    onChange={(e) => setConfig({ ...config, requestBody: e.target.value })}
+                    onDrop={(e) => handleDrop(e, 'requestBody')}
+                    onDragOver={handleDragOver}
+                    className="w-full h-96 p-4 font-mono text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white resize-none"
+                    placeholder='{\n  "user_id": "{input.user.id}",\n  "status": "ACTIVE"\n}'
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'headers' && (
+            <div className="space-y-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">HTTP Headers</h3>
+                  <p className="text-xs text-slate-500">Configure key-value pairs for request headers.</p>
+                </div>
+                <Button
+                  onClick={addHeader}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl"
+                  size="sm"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Header
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {config.headers.map((header, index) => (
+                  <div key={index} className="flex gap-3 items-center">
+                    <input
+                      type="text"
+                      placeholder="Header Name (e.g. Content-Type)"
+                      value={header.key}
+                      onChange={(e) => updateHeader(index, 'key', e.target.value)}
+                      className="flex-1 px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Header Value (e.g. application/json)"
+                      value={header.value}
+                      onChange={(e) => updateHeader(index, 'value', e.target.value)}
+                      className="flex-1 px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                    <button
+                      onClick={() => removeHeader(index)}
+                      className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {config.headers.length === 0 && (
+                  <p className="text-xs text-slate-500 italic p-4 text-center border border-dashed border-slate-200 rounded-xl">
+                    No headers added yet. Click "+ Add Header" to include custom headers.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'auth' && (
+            <div className="space-y-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm max-w-2xl">
+              <h3 className="text-sm font-bold text-slate-900 border-b border-slate-200 pb-3">Authentication Settings</h3>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Auth Type</label>
+                <select
+                  value={config.authType}
+                  onChange={(e) => setConfig({ ...config, authType: e.target.value as any })}
+                  className="w-full px-3 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                >
+                  <option value="none">None (Public Endpoint)</option>
+                  <option value="bearer">Bearer Token</option>
+                  <option value="basic">Basic Auth</option>
+                  <option value="oauth2">OAuth 2.0</option>
+                  <option value="api-key">API Key Header</option>
+                </select>
+              </div>
+
+              {config.authType === 'bearer' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Bearer Token</label>
+                  <input
+                    type="password"
+                    placeholder="Enter bearer token"
+                    value={config.authConfig.bearerToken || ''}
+                    onChange={(e) => setConfig({
+                      ...config,
+                      authConfig: { ...config.authConfig, bearerToken: e.target.value }
+                    })}
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                </div>
+              )}
+
+              {config.authType === 'basic' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Username</label>
+                    <input
+                      type="text"
+                      placeholder="Enter username"
+                      value={config.authConfig.basicUsername || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        authConfig: { ...config.authConfig, basicUsername: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Password</label>
+                    <input
+                      type="password"
+                      placeholder="Enter password"
+                      value={config.authConfig.basicPassword || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        authConfig: { ...config.authConfig, basicPassword: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {config.authType === 'oauth2' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Client ID</label>
+                    <input
+                      type="text"
+                      placeholder="Enter client ID"
+                      value={config.authConfig.oauth2ClientId || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        authConfig: { ...config.authConfig, oauth2ClientId: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Client Secret</label>
+                    <input
+                      type="password"
+                      placeholder="Enter client secret"
+                      value={config.authConfig.oauth2ClientSecret || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        authConfig: { ...config.authConfig, oauth2ClientSecret: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Token URL</label>
+                    <input
+                      type="text"
+                      placeholder="https://oauth.example.com/token"
+                      value={config.authConfig.oauth2TokenUrl || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        authConfig: { ...config.authConfig, oauth2TokenUrl: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Scope (optional)</label>
+                    <input
+                      type="text"
+                      placeholder="read write"
+                      value={config.authConfig.oauth2Scope || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        authConfig: { ...config.authConfig, oauth2Scope: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {config.authType === 'api-key' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Header Name</label>
+                    <input
+                      type="text"
+                      placeholder="X-API-Key"
+                      value={config.authConfig.apiKeyHeader || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        authConfig: { ...config.authConfig, apiKeyHeader: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">API Key</label>
+                    <input
+                      type="password"
+                      placeholder="Enter API key"
+                      value={config.authConfig.apiKeyValue || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        authConfig: { ...config.authConfig, apiKeyValue: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'tls' && (
+            <div className="space-y-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm max-w-3xl">
+              <h3 className="text-sm font-bold text-slate-900 border-b border-slate-200 pb-3">TLS / SSL Certificates</h3>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="tlsEnabled"
+                  checked={config.tlsConfig.enabled}
+                  onChange={(e) => setConfig({
+                    ...config,
+                    tlsConfig: { ...config.tlsConfig, enabled: e.target.checked }
+                  })}
+                  className="w-4 h-4 text-amber-600 rounded focus:ring-amber-400"
+                />
+                <label htmlFor="tlsEnabled" className="text-xs font-bold text-slate-800">
+                  Enable Custom TLS/SSL Client Certificates
+                </label>
+              </div>
+
+              {config.tlsConfig.enabled && (
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="verifyCert"
+                      checked={config.tlsConfig.verifyCertificate}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        tlsConfig: { ...config.tlsConfig, verifyCertificate: e.target.checked }
+                      })}
+                      className="w-4 h-4 text-amber-600 rounded focus:ring-amber-400"
+                    />
+                    <label htmlFor="verifyCert" className="text-xs font-semibold text-slate-700">
+                      Verify Server Certificate Authority (CA)
+                    </label>
+                  </div>
+
+                  <div className="border border-slate-200 p-4 rounded-xl space-y-3 bg-slate-50/50">
+                    <label className="block text-xs font-bold text-slate-800">Client Certificate (.pem / .crt)</label>
+
+                    <input
+                      type="text"
+                      placeholder="/path/to/certificate.pem"
+                      value={config.tlsConfig.clientCertificatePath || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        tlsConfig: { ...config.tlsConfig, clientCertificatePath: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                    />
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-500 font-medium">Or upload file directly:</span>
+                      <input
+                        type="file"
+                        id="cert-file-upload"
+                        accept=".pem,.crt,.cer"
+                        onChange={handleCertificateFileSelect}
+                        className="hidden"
+                        disabled={uploadingCert}
+                      />
+                      <label
+                        htmlFor="cert-file-upload"
+                        className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-colors cursor-pointer ${
+                          uploadingCert
+                            ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                            : 'bg-amber-600 hover:bg-amber-700 text-white shadow-xs'
+                        }`}
+                      >
+                        {uploadingCert ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-3.5 h-3.5" />
+                            Upload Certificate File
+                          </>
+                        )}
+                      </label>
+                    </div>
+
+                    <textarea
+                      placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                      value={config.tlsConfig.clientCertificate || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        tlsConfig: { ...config.tlsConfig, clientCertificate: e.target.value }
+                      })}
+                      className="w-full h-28 p-3 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white resize-none"
+                    />
+                  </div>
+
+                  <div className="border border-slate-200 p-4 rounded-xl space-y-3 bg-slate-50/50">
+                    <label className="block text-xs font-bold text-slate-800">Client Private Key (.pem / .key)</label>
+
+                    <input
+                      type="text"
+                      placeholder="/path/to/private-key.pem"
+                      value={config.tlsConfig.clientKeyPath || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        tlsConfig: { ...config.tlsConfig, clientKeyPath: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                    />
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-500 font-medium">Or upload key file directly:</span>
+                      <input
+                        type="file"
+                        id="key-file-upload"
+                        accept=".pem,.key"
+                        onChange={handleKeyFileSelect}
+                        className="hidden"
+                        disabled={uploadingKey}
+                      />
+                      <label
+                        htmlFor="key-file-upload"
+                        className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-colors cursor-pointer ${
+                          uploadingKey
+                            ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                            : 'bg-amber-600 hover:bg-amber-700 text-white shadow-xs'
+                        }`}
+                      >
+                        {uploadingKey ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-3.5 h-3.5" />
+                            Upload Key File
+                          </>
+                        )}
+                      </label>
+                    </div>
+
+                    <textarea
+                      placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                      value={config.tlsConfig.clientKey || ''}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        tlsConfig: { ...config.tlsConfig, clientKey: e.target.value }
+                      })}
+                      className="w-full h-28 p-3 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'advanced' && (
+            <div className="space-y-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm max-w-xl">
+              <h3 className="text-sm font-bold text-slate-900 border-b border-slate-200 pb-3">Advanced Request Settings</h3>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Request Timeout (milliseconds)
+                </label>
+                <input
+                  type="number"
+                  value={config.timeout}
+                  onChange={(e) => setConfig({ ...config, timeout: parseInt(e.target.value) || 30000 })}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <input
+                  type="checkbox"
+                  id="retryEnabled"
+                  checked={config.retryConfig.enabled}
+                  onChange={(e) => setConfig({
+                    ...config,
+                    retryConfig: { ...config.retryConfig, enabled: e.target.checked }
+                  })}
+                  className="w-4 h-4 text-amber-600 rounded focus:ring-amber-400"
+                />
+                <label htmlFor="retryEnabled" className="text-xs font-bold text-slate-800">
+                  Enable Retry Strategy on Failure
+                </label>
+              </div>
+
+              {config.retryConfig.enabled && (
+                <div className="space-y-3 pl-7 pt-1">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Max Retry Attempts</label>
+                    <input
+                      type="number"
+                      value={config.retryConfig.maxRetries}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        retryConfig: { ...config.retryConfig, maxRetries: parseInt(e.target.value) || 3 }
+                      })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Retry Delay (milliseconds)</label>
+                    <input
+                      type="number"
+                      value={config.retryConfig.retryDelay}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        retryConfig: { ...config.retryConfig, retryDelay: parseInt(e.target.value) || 1000 }
+                      })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-200 px-8 py-4 flex items-center justify-between bg-slate-50">
+          <div className="text-xs text-slate-500">
+            Node Configuration: <span className="font-bold text-slate-900 uppercase">{activeTab}</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={onClose} className="px-5 py-2 text-xs font-bold rounded-xl">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 text-xs font-bold shadow-md gap-2 rounded-xl"
+            >
+              Save Service Configuration
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -803,3 +780,4 @@ export const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({
 
   return createPortal(modalContent, document.body);
 };
+

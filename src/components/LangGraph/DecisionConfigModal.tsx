@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sliders, Code2, Check } from 'lucide-react';
+import { X, Sliders, Code2, Check, Sparkles } from 'lucide-react';
 import { Button } from '../ui/button';
 import Editor from '@monaco-editor/react';
 import { VisualRuleBuilder } from './VisualRuleBuilder';
-import { DEFAULT_RULE_GROUP, compileRuleGroupToPython, RuleGroup } from '../../utils/ruleCompiler';
+import { DEFAULT_RULE_GROUP, compileRuleGroupToPython, parsePythonToRuleGroup, RuleGroup } from '../../utils/ruleCompiler';
 
 interface DecisionConfigModalProps {
   isOpen: boolean;
@@ -23,16 +23,28 @@ export const DecisionConfigModal: React.FC<DecisionConfigModalProps> = ({
   const [pythonScript, setPythonScript] = useState(
     initialValue || compileRuleGroupToPython(DEFAULT_RULE_GROUP)
   );
-  const latestRuleGroupRef = useRef<RuleGroup>(DEFAULT_RULE_GROUP);
+  const latestRuleGroupRef = useRef<RuleGroup>(
+    initialValue ? parsePythonToRuleGroup(initialValue) : DEFAULT_RULE_GROUP
+  );
 
   useEffect(() => {
     if (isOpen) {
-      setPythonScript(initialValue || compileRuleGroupToPython(DEFAULT_RULE_GROUP));
-      latestRuleGroupRef.current = DEFAULT_RULE_GROUP;
+      const script = initialValue || compileRuleGroupToPython(DEFAULT_RULE_GROUP);
+      setPythonScript(script);
+      latestRuleGroupRef.current = parsePythonToRuleGroup(script);
     }
   }, [isOpen, initialValue]);
 
   if (!isOpen) return null;
+
+  const handleTabSwitch = (tab: 'visual' | 'code') => {
+    if (tab === 'visual') {
+      // Sync pythonScript back to visual rule group
+      const parsedGroup = parsePythonToRuleGroup(pythonScript);
+      latestRuleGroupRef.current = parsedGroup;
+    }
+    setActiveTab(tab);
+  };
 
   const handleVisualRuleChange = (group: RuleGroup, compiledPython: string) => {
     latestRuleGroupRef.current = group;
@@ -76,7 +88,7 @@ export const DecisionConfigModal: React.FC<DecisionConfigModalProps> = ({
         {/* Tab Switcher */}
         <div className="bg-slate-100/80 border-b border-slate-200 px-8 pt-3 flex gap-2">
           <button
-            onClick={() => setActiveTab('visual')}
+            onClick={() => handleTabSwitch('visual')}
             className={`px-5 py-2.5 text-xs font-bold rounded-t-xl flex items-center gap-2 transition-all ${activeTab === 'visual'
                 ? 'bg-white text-slate-950 border-t-2 border-x border-indigo-600 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
@@ -86,7 +98,7 @@ export const DecisionConfigModal: React.FC<DecisionConfigModalProps> = ({
             Visual Dynamic Rule Builder
           </button>
           <button
-            onClick={() => setActiveTab('code')}
+            onClick={() => handleTabSwitch('code')}
             className={`px-5 py-2.5 text-xs font-bold rounded-t-xl flex items-center gap-2 transition-all ${activeTab === 'code'
                 ? 'bg-white text-slate-950 border-t-2 border-x border-indigo-600 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
@@ -157,3 +169,4 @@ export const DecisionConfigModal: React.FC<DecisionConfigModalProps> = ({
 
   return createPortal(modalContent, document.body);
 };
+
