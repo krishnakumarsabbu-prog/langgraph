@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { X, CheckCircle2, XCircle, Clock, Copy, Check, ChevronDown, ChevronRight, Layers, ShieldCheck, Zap } from 'lucide-react';
-import { RequestComparisonItem, StepNodeExecution } from './championChallengerMock';
+import { CandidateModel, DynamicRequestItem, StepNodeExecution } from './championChallengerMock';
 
 interface ExecutionPayloadModalProps {
-  request: RequestComparisonItem | null;
+  request: DynamicRequestItem | null;
+  candidates: CandidateModel[];
   onClose: () => void;
 }
 
-export const ExecutionPayloadModal: React.FC<ExecutionPayloadModalProps> = ({ request, onClose }) => {
+export const ExecutionPayloadModal: React.FC<ExecutionPayloadModalProps> = ({ request, candidates, onClose }) => {
   const [copiedInput, setCopiedInput] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'champion' | 'challenger' | 'diff'>('overview');
+  const [activeTab, setActiveTab] = useState<string>('overview');
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
 
   if (!request) return null;
@@ -27,23 +28,23 @@ export const ExecutionPayloadModal: React.FC<ExecutionPayloadModalProps> = ({ re
   const renderStatusBadge = (status: 'Completed' | 'Dropped' | 'Failed', dropReason?: string) => {
     if (status === 'Completed') {
       return (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-          <CheckCircle2 size={14} />
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <CheckCircle2 size={12} />
           Completed
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
-        <XCircle size={14} />
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+        <XCircle size={12} />
         Dropped {dropReason ? `(${dropReason})` : ''}
       </span>
     );
   };
 
-  const renderStepNode = (node: StepNodeExecution, index: number, isChampion: boolean) => {
-    const isExpanded = !!expandedNodes[`${isChampion ? 'champ' : 'chall'}-${index}`];
-    const key = `${isChampion ? 'champ' : 'chall'}-${index}`;
+  const renderStepNode = (node: StepNodeExecution, index: number, prefix: string) => {
+    const key = `${prefix}-${index}`;
+    const isExpanded = !!expandedNodes[key];
 
     return (
       <div
@@ -118,6 +119,8 @@ export const ExecutionPayloadModal: React.FC<ExecutionPayloadModalProps> = ({ re
     );
   };
 
+  const winningCand = candidates.find((c) => c.id === request.winnerCandidateId) || candidates[0];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm animate-fadeIn">
       <div className="relative w-full max-w-5xl max-h-[90vh] bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
@@ -137,7 +140,9 @@ export const ExecutionPayloadModal: React.FC<ExecutionPayloadModalProps> = ({ re
               <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
                 <span>Timestamp: {request.timestamp}</span>
                 <span>•</span>
-                <span className="text-blue-700 font-semibold">Winner: {request.winner}</span>
+                <span style={{ color: winningCand.color }} className="font-bold">
+                  Winner: {winningCand.name}
+                </span>
               </p>
             </div>
           </div>
@@ -150,45 +155,68 @@ export const ExecutionPayloadModal: React.FC<ExecutionPayloadModalProps> = ({ re
           </button>
         </div>
 
-        {/* Status Bar */}
-        <div className="px-6 py-2.5 bg-gray-100/70 border-b border-gray-200 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-blue-700">Champion:</span>
-              {renderStatusBadge(request.champion_status, request.champion_drop_reason)}
-              <span className="text-gray-500 font-mono">({request.champion_response_time}ms)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-emerald-700">Challenger:</span>
-              {renderStatusBadge(request.challenger_status, request.challenger_drop_reason)}
-              <span className="text-gray-500 font-mono">({request.challenger_response_time}ms)</span>
-            </div>
+        {/* Dynamic Status Bar across Active Candidates */}
+        <div className="px-6 py-2.5 bg-gray-100/70 border-b border-gray-200 flex flex-wrap items-center justify-between text-xs gap-3">
+          <div className="flex flex-wrap items-center gap-4">
+            {candidates.map((cand) => {
+              const res = request.results[cand.id];
+              return (
+                <div key={cand.id} className="flex items-center gap-2">
+                  <span className="font-bold" style={{ color: cand.color }}>
+                    {cand.version}:
+                  </span>
+                  {renderStatusBadge(res?.status || 'Completed', res?.dropReason)}
+                  <span className="text-gray-500 font-mono">({res?.responseTime || 400}ms)</span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-2 px-6 pt-3 border-b border-gray-200 bg-gray-50">
-          {[
-            { id: 'overview', label: 'Input Request Payload' },
-            { id: 'champion', label: `Champion Execution (${request.champion_executions.length} steps)` },
-            { id: 'challenger', label: `Challenger Execution (${request.challenger_executions.length} steps)` },
-            { id: 'diff', label: 'Side-by-Side Path Diff' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2.5 text-xs font-semibold rounded-t-xl transition-all border-t border-x ${
-                activeTab === tab.id
-                  ? 'bg-white text-blue-600 border-gray-200 border-b-transparent shadow-xs font-bold'
-                  : 'text-gray-600 hover:text-gray-900 border-transparent hover:bg-gray-100'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        {/* Dynamic Candidate Tab Navigation */}
+        <div className="flex items-center gap-2 px-6 pt-3 border-b border-gray-200 bg-gray-50 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-2 text-xs font-semibold rounded-t-xl transition-all border-t border-x whitespace-nowrap ${
+              activeTab === 'overview'
+                ? 'bg-white text-blue-600 border-gray-200 border-b-transparent shadow-xs font-bold'
+                : 'text-gray-600 hover:text-gray-900 border-transparent hover:bg-gray-100'
+            }`}
+          >
+            Input Request Payload
+          </button>
+
+          {candidates.map((cand) => {
+            const execCount = request.results[cand.id]?.executions?.length || 5;
+            return (
+              <button
+                key={cand.id}
+                onClick={() => setActiveTab(cand.id)}
+                className={`px-4 py-2 text-xs font-semibold rounded-t-xl transition-all border-t border-x whitespace-nowrap ${
+                  activeTab === cand.id
+                    ? 'bg-white text-blue-600 border-gray-200 border-b-transparent shadow-xs font-bold'
+                    : 'text-gray-600 hover:text-gray-900 border-transparent hover:bg-gray-100'
+                }`}
+                style={{ color: activeTab === cand.id ? cand.color : undefined }}
+              >
+                {cand.name.split(' ')[0]} {cand.version} ({execCount} steps)
+              </button>
+            );
+          })}
+
+          <button
+            onClick={() => setActiveTab('diff')}
+            className={`px-4 py-2 text-xs font-semibold rounded-t-xl transition-all border-t border-x whitespace-nowrap ${
+              activeTab === 'diff'
+                ? 'bg-white text-blue-600 border-gray-200 border-b-transparent shadow-xs font-bold'
+                : 'text-gray-600 hover:text-gray-900 border-transparent hover:bg-gray-100'
+            }`}
+          >
+            Multi-Path Diff
+          </button>
         </div>
 
-        {/* Modal Body Content */}
+        {/* Modal Content */}
         <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-gray-50/30">
           {activeTab === 'overview' && (
             <div className="space-y-4">
@@ -207,115 +235,80 @@ export const ExecutionPayloadModal: React.FC<ExecutionPayloadModalProps> = ({ re
                 {JSON.stringify(request.input_payload, null, 2)}
               </pre>
 
-              <div className="grid grid-cols-2 gap-4 pt-2">
-                <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200">
-                  <div className="flex items-center gap-2 text-blue-700 font-semibold text-xs mb-2">
-                    <ShieldCheck size={16} />
-                    <span>Champion Path Traversal</span>
-                  </div>
-                  <div className="font-mono text-xs text-gray-900 p-2.5 rounded-lg bg-white border border-blue-200 font-medium">
-                    {request.champion_path}
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200">
-                  <div className="flex items-center gap-2 text-emerald-700 font-semibold text-xs mb-2">
-                    <Zap size={16} />
-                    <span>Challenger Path Traversal</span>
-                  </div>
-                  <div className="font-mono text-xs text-gray-900 p-2.5 rounded-lg bg-white border border-emerald-200 font-medium">
-                    {request.challenger_path}
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                {candidates.map((cand) => {
+                  const res = request.results[cand.id];
+                  return (
+                    <div
+                      key={cand.id}
+                      className={`p-4 rounded-xl border ${cand.bgColor} ${cand.borderColor}`}
+                    >
+                      <div className="flex items-center gap-2 font-semibold text-xs mb-2" style={{ color: cand.color }}>
+                        <Zap size={16} />
+                        <span>{cand.name} Traversal</span>
+                      </div>
+                      <div className="font-mono text-xs text-gray-900 p-2.5 rounded-lg bg-white border border-gray-200 font-medium">
+                        {res?.path || 'S1 → D1 → S2 → D2 → S3'}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {activeTab === 'champion' && (
+          {activeTab !== 'overview' && activeTab !== 'diff' && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-blue-700">Champion Execution Node Trace</h3>
-                <span className="text-xs text-gray-500 font-mono">Total Time: {request.champion_response_time}ms</span>
-              </div>
+              {(() => {
+                const targetCand = candidates.find((c) => c.id === activeTab) || candidates[0];
+                const res = request.results[targetCand.id];
+                const executions = res?.executions && res.executions.length > 0
+                  ? res.executions
+                  : [
+                      { step_id: '1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 40, input_payload: {}, output_payload: { valid: true } },
+                      { step_id: '2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'completed', duration_ms: 100, input_payload: {}, output_payload: { pass: true } },
+                      { step_id: '3', node_id: 's2', node_name: 'Data Enrichment', node_type: 'service', status: 'completed', duration_ms: 180, input_payload: {}, output_payload: { enriched: true } },
+                      { step_id: '4', node_id: 'd2', node_name: 'Fraud Check', node_type: 'decision', status: 'completed', duration_ms: 70, input_payload: {}, output_payload: { approved: true } },
+                      { step_id: '5', node_id: 's3', node_name: 'Final Processing', node_type: 'service', status: 'completed', duration_ms: 50, input_payload: {}, output_payload: { status: 'SUCCESS' } },
+                    ];
 
-              {request.champion_executions.length === 0 ? (
-                <div className="p-8 text-center text-gray-500 text-xs bg-white rounded-xl border border-gray-200">
-                  No step details available for this sample mock item.
-                </div>
-              ) : (
-                request.champion_executions.map((node, index) => renderStepNode(node, index, true))
-              )}
-            </div>
-          )}
-
-          {activeTab === 'challenger' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-emerald-700">Challenger Execution Node Trace</h3>
-                <span className="text-xs text-gray-500 font-mono">Total Time: {request.challenger_response_time}ms</span>
-              </div>
-
-              {request.challenger_executions.length === 0 ? (
-                <div className="p-8 text-center text-gray-500 text-xs bg-white rounded-xl border border-gray-200">
-                  No step details available for this sample mock item.
-                </div>
-              ) : (
-                request.challenger_executions.map((node, index) => renderStepNode(node, index, false))
-              )}
+                return (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold" style={{ color: targetCand.color }}>
+                        {targetCand.name} Execution Node Trace
+                      </h3>
+                      <span className="text-xs text-gray-500 font-mono">
+                        Total Latency: {res?.responseTime || 420}ms
+                      </span>
+                    </div>
+                    {executions.map((node: any, index: number) =>
+                      renderStepNode(node, index, targetCand.id)
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
 
           {activeTab === 'diff' && (
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <h3 className="text-xs font-semibold text-blue-700 mb-3 flex items-center gap-2">
-                  <span>Champion Execution Steps</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] bg-blue-100 text-blue-800 font-mono">
-                    {request.champion_status}
-                  </span>
-                </h3>
-                <div className="space-y-2">
-                  {request.champion_executions.map((node, idx) => (
-                    <div key={idx} className="p-3 rounded-lg bg-white border border-gray-200 text-xs shadow-xs">
-                      <div className="flex justify-between text-gray-900 font-medium">
-                        <span>{idx + 1}. {node.node_name}</span>
-                        <span className="text-gray-500 font-mono">{node.duration_ms}ms</span>
-                      </div>
-                      <div className="text-[11px] text-gray-500 mt-1 font-mono">{node.node_id} • {node.status}</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {candidates.map((cand) => {
+                const res = request.results[cand.id];
+                return (
+                  <div key={cand.id} className="p-4 rounded-xl bg-white border border-gray-200 space-y-2">
+                    <h4 className="text-xs font-bold" style={{ color: cand.color }}>
+                      {cand.name}
+                    </h4>
+                    <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-xs font-mono text-gray-800">
+                      {res?.path || 'S1 → D1 → S2 → D2 → S3'}
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-xs font-semibold text-emerald-700 mb-3 flex items-center gap-2">
-                  <span>Challenger Execution Steps</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-mono">
-                    {request.challenger_status}
-                  </span>
-                </h3>
-                <div className="space-y-2">
-                  {request.challenger_executions.map((node, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-lg border text-xs shadow-xs ${
-                        node.status === 'completed'
-                          ? 'bg-white border-gray-200'
-                          : 'bg-red-50 border-red-200 text-red-900'
-                      }`}
-                    >
-                      <div className="flex justify-between font-medium text-gray-900">
-                        <span>{idx + 1}. {node.node_name}</span>
-                        <span className="text-gray-500 font-mono">{node.duration_ms}ms</span>
-                      </div>
-                      <div className="text-[11px] text-gray-500 mt-1 font-mono">
-                        {node.node_id} • {node.status}
-                        {node.drop_reason && <div className="text-red-700 mt-1 font-sans font-medium">Drop: {node.drop_reason}</div>}
-                      </div>
+                    <div className="text-[11px] text-gray-500 font-mono">
+                      Status: {res?.status || 'Completed'} ({res?.responseTime || 400}ms)
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

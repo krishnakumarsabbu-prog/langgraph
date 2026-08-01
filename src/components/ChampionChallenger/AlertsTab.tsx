@@ -1,33 +1,38 @@
 import React from 'react';
 import { AlertTriangle, ShieldAlert, CheckCircle2, Bell } from 'lucide-react';
+import { CandidateModel } from './championChallengerMock';
 
-export const AlertsTab: React.FC = () => {
+interface AlertsTabProps {
+  candidates?: CandidateModel[];
+}
+
+export const AlertsTab: React.FC<AlertsTabProps> = ({ candidates = [] }) => {
   const alerts = [
     {
       id: 'alt-1',
       severity: 'high',
-      title: 'Challenger Drop Rate Spike (>50%)',
-      message: 'Decision Node 2 (Fraud Check) experienced a drop rate of 70.00% in the last hour.',
+      title: 'Challenger C Over-rejection Alert (>20% drop rate)',
+      message: 'Challenger C (Strict Risk Guardian v3.1) experienced an elevated fallout rate at Risk Evaluation.',
       timestamp: 'Aug 1, 10:25:00 AM',
     },
     {
       id: 'alt-2',
       severity: 'medium',
-      title: 'Latency Divergence Detected',
-      message: 'Challenger average response time (678ms) is 24.48% higher than Champion baseline (512ms).',
+      title: 'Challenger E Latency Divergence (+18ms)',
+      message: 'Graph Neural Net v1.0 average response time is +18ms higher than Champion baseline (42ms).',
       timestamp: 'Aug 1, 09:40:12 AM',
     },
     {
       id: 'alt-3',
       severity: 'info',
-      title: 'Champion Stability Check Passed',
-      message: 'Champion graph maintained 60%+ completion rate over 10 consecutive sessions.',
+      title: 'Challenger A Statistical Win Confirmed (p=0.004)',
+      message: 'Challenger A yields +2.8% conversion boost with 94.2% win probability over 100,000 requests.',
       timestamp: 'Aug 1, 08:00:00 AM',
     },
   ];
 
   return (
-    <div className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-4">
+    <div className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-4 select-none">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
@@ -35,7 +40,7 @@ export const AlertsTab: React.FC = () => {
             <span>Champion-Challenger Active Alerts</span>
           </h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Automated degradation warnings and statistical divergence notifications.
+            Automated degradation warnings and statistical divergence notifications across {candidates.length || 6} models
           </p>
         </div>
         <span className="px-3 py-1 rounded-full text-xs font-mono bg-red-50 text-red-700 border border-red-200 font-semibold">
@@ -52,7 +57,7 @@ export const AlertsTab: React.FC = () => {
                 ? 'bg-red-50/60 border-red-200 text-red-900'
                 : alt.severity === 'medium'
                 ? 'bg-amber-50/60 border-amber-200 text-amber-900'
-                : 'bg-gray-50 border-gray-200 text-gray-800'
+                : 'bg-[#F0FDF4] border-emerald-200 text-emerald-900'
             }`}
           >
             {alt.severity === 'high' ? (

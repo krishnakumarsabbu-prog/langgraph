@@ -1,493 +1,512 @@
-export interface StepNodeExecution {
-  step_id: string;
-  node_id: string;
-  node_name: string;
-  node_type: 'service' | 'decision' | 'llm' | 'transform';
-  status: 'completed' | 'dropped' | 'failed';
-  duration_ms: number;
-  input_payload: Record<string, any>;
-  output_payload?: Record<string, any>;
-  drop_reason?: string;
+export interface CandidateModel {
+  id: string;
+  name: string;
+  version: string;
+  color: string;
+  isChampion?: boolean;
+  dropRate?: number;
+  outputCount?: number;
+  latencyMs?: number;
 }
 
-export interface RequestComparisonItem {
+export interface WorkflowNode {
+  id: string;
+  order: number;
+  name: string;
+  type: 'service' | 'decision' | 'llm' | 'transform';
+  inputCount: number;
+  outputCount: number;
+  droppedCount: number;
+  dropPct: number;
+  avgLatencyMs: number;
+  errorPct: number;
+  ruleCount: number;
+  championConversionPct: number;
+  bestChallengerConversionPct: number;
+  bestChallengerDeltaPct: number;
+  bestChallengerId: string;
+}
+
+export interface ChallengerModelData {
+  id: string;
+  name: string;
+  version: string;
+  color: string; // Emerald #10B981, Violet #8B5CF6, Amber #F59E0B, Rose #F43F5E, Cyan #06B6D4
+  badgeBg: string;
+  badgeText: string;
+  outputCount: number;
+  outputDelta: number; // e.g. +143
+  dropPct: number;
+  latencyDeltaMs: number; // e.g. -3ms
+  errorDeltaPct: number; // e.g. -0.1%
+  confidenceScore: number; // e.g. 0.96
+  winProbabilityPct: number; // e.g. 94%
+  pValue: number; // e.g. 0.004
+  ciRange: string; // e.g. "[+1.1%, +4.5%]"
+  sparklineData: number[];
+}
+
+export interface BusinessRuleImpact {
+  ruleId: string;
+  ruleName: string;
+  category: string;
+  championDrops: number;
+  bestChallengerDrops: number;
+  deltaDrops: number; // e.g. -111
+  allChallengerDrops: Record<string, number>;
+}
+
+export interface RequestDiffSample {
+  requestId: string;
+  sessionId: string;
+  timestamp: string;
+  winningChallengerId: string;
+  championPath: string;
+  challengerPath: string;
+  championStatus: 'PASS' | 'DROP';
+  challengerStatus: 'PASS' | 'DROP';
+  dropReason?: string;
+  confidenceDelta: number;
+  latencyDeltaMs: number;
+}
+
+export interface AIInsightItem {
+  id: string;
+  type: 'positive' | 'warning' | 'critical' | 'recommendation';
+  title: string;
+  description: string;
+  financialImpact: string;
+  recommendedAction: string;
+}
+
+export interface DynamicRequestItem {
   id: string;
   request_id: string;
   session_id: string;
   timestamp: string;
-  champion_status: 'Completed' | 'Dropped' | 'Failed';
-  challenger_status: 'Completed' | 'Dropped' | 'Failed';
-  champion_drop_reason?: string;
-  challenger_drop_reason?: string;
-  champion_path: string;
-  challenger_path: string;
-  champion_response_time: number; // in ms
-  challenger_response_time: number; // in ms
-  winner: 'Champion' | 'Challenger' | 'Tie';
-  input_payload: Record<string, any>;
-  champion_executions: StepNodeExecution[];
-  challenger_executions: StepNodeExecution[];
+  winnerCandidateId: string;
+  results: Record<string, { status: 'Completed' | 'Dropped'; responseTime: number }>;
+  pathDiffs?: Record<string, string>;
 }
 
-export interface FunnelStage {
-  id: string;
-  stage_name: string;
-  node_type: string;
-  champion_in: number;
-  champion_out: number;
-  champion_drop: number;
-  champion_drop_pct: number;
-  champion_step_drop_change: string;
-  challenger_in: number;
-  challenger_out: number;
-  challenger_drop: number;
-  challenger_drop_pct: number;
-  challenger_step_drop_change: string;
-}
-
-export interface MetricSummaryItem {
-  metric: string;
-  champion: string;
-  challenger: string;
-  difference: string;
-  isPositive: boolean;
-}
-
-export interface DropReasonItem {
-  reason: string;
-  champion: number;
-  champion_pct: number;
-  challenger: number;
-  challenger_pct: number;
-  total: number;
-  total_pct: number;
-}
-
-export interface TimeSeriesDataPoint {
-  date: string;
-  champion_completion_rate: number;
-  challenger_completion_rate: number;
-  champion_requests: number;
-  challenger_requests: number;
-  champion_avg_rt: number;
-  challenger_avg_rt: number;
-}
-
-export const FUNNEL_STAGES: FunnelStage[] = [
+// 8 Workflow Stages
+export const MASTER_WORKFLOW_NODES: WorkflowNode[] = [
   {
-    id: 'stage-1',
-    stage_name: 'Request Validation',
-    node_type: 'Service Node 1',
-    champion_in: 10,
-    champion_out: 9,
-    champion_drop: 1,
-    champion_drop_pct: 10.0,
-    champion_step_drop_change: '-10.00%',
-    challenger_in: 10,
-    challenger_out: 8,
-    challenger_drop: 2,
-    challenger_drop_pct: 20.0,
-    challenger_step_drop_change: '-20.00%',
+    id: 'node-1',
+    order: 1,
+    name: '1 Request Validation',
+    type: 'service',
+    inputCount: 100000,
+    outputCount: 98450,
+    droppedCount: 1550,
+    dropPct: 1.55,
+    avgLatencyMs: 12,
+    errorPct: 0.05,
+    ruleCount: 4,
+    championConversionPct: 98.45,
+    bestChallengerConversionPct: 99.10,
+    bestChallengerDeltaPct: 0.65,
+    bestChallengerId: 'chall-a',
   },
   {
-    id: 'stage-2',
-    stage_name: 'Risk Evaluation',
-    node_type: 'Decision Node 1',
-    champion_in: 9,
-    champion_out: 8,
-    champion_drop: 1,
-    champion_drop_pct: 10.0,
-    champion_step_drop_change: '-10.00%',
-    challenger_in: 8,
-    challenger_out: 6,
-    challenger_drop: 2,
-    challenger_drop_pct: 25.0,
-    challenger_step_drop_change: '-20.00%',
+    id: 'node-2',
+    order: 2,
+    name: '2 Device Intelligence',
+    type: 'service',
+    inputCount: 98450,
+    outputCount: 94100,
+    droppedCount: 4350,
+    dropPct: 4.42,
+    avgLatencyMs: 28,
+    errorPct: 0.12,
+    ruleCount: 8,
+    championConversionPct: 95.58,
+    bestChallengerConversionPct: 97.20,
+    bestChallengerDeltaPct: 1.62,
+    bestChallengerId: 'chall-a',
   },
   {
-    id: 'stage-3',
-    stage_name: 'Data Enrichment',
-    node_type: 'Service Node 2',
-    champion_in: 8,
-    champion_out: 6,
-    champion_drop: 2,
-    champion_drop_pct: 25.0,
-    champion_step_drop_change: '-20.00%',
-    challenger_in: 6,
-    challenger_out: 4,
-    challenger_drop: 2,
-    challenger_drop_pct: 33.33,
-    challenger_step_drop_change: '-20.00%',
+    id: 'node-3',
+    order: 3,
+    name: '3 Risk Evaluation',
+    type: 'decision',
+    inputCount: 94100,
+    outputCount: 79350,
+    droppedCount: 14750,
+    dropPct: 15.67,
+    avgLatencyMs: 42,
+    errorPct: 0.20,
+    ruleCount: 18,
+    championConversionPct: 84.33,
+    bestChallengerConversionPct: 87.13,
+    bestChallengerDeltaPct: 2.80,
+    bestChallengerId: 'chall-a',
   },
   {
-    id: 'stage-4',
-    stage_name: 'Fraud Check',
-    node_type: 'Decision Node 2',
-    champion_in: 6,
-    champion_out: 6,
-    champion_drop: 0,
-    champion_drop_pct: 0.0,
-    champion_step_drop_change: '0.00%',
-    challenger_in: 4,
-    challenger_out: 3,
-    challenger_drop: 1,
-    challenger_drop_pct: 25.0,
-    challenger_step_drop_change: '-10.00%',
+    id: 'node-4',
+    order: 4,
+    name: '4 Velocity Check',
+    type: 'decision',
+    inputCount: 79350,
+    outputCount: 72100,
+    droppedCount: 7250,
+    dropPct: 9.14,
+    avgLatencyMs: 18,
+    errorPct: 0.08,
+    ruleCount: 12,
+    championConversionPct: 90.86,
+    bestChallengerConversionPct: 92.40,
+    bestChallengerDeltaPct: 1.54,
+    bestChallengerId: 'chall-b',
   },
   {
-    id: 'stage-5',
-    stage_name: 'Final Processing',
-    node_type: 'Service Node 3',
-    champion_in: 6,
-    champion_out: 6,
-    champion_drop: 0,
-    champion_drop_pct: 0.0,
-    champion_step_drop_change: '0.00%',
-    challenger_in: 3,
-    challenger_out: 3,
-    challenger_drop: 0,
-    challenger_drop_pct: 0.0,
-    challenger_step_drop_change: '0.00%',
+    id: 'node-5',
+    order: 5,
+    name: '5 Geo Analysis',
+    type: 'decision',
+    inputCount: 72100,
+    outputCount: 68400,
+    droppedCount: 3700,
+    dropPct: 5.13,
+    avgLatencyMs: 22,
+    errorPct: 0.15,
+    ruleCount: 9,
+    championConversionPct: 94.87,
+    bestChallengerConversionPct: 95.80,
+    bestChallengerDeltaPct: 0.93,
+    bestChallengerId: 'chall-a',
+  },
+  {
+    id: 'node-6',
+    order: 6,
+    name: '6 Fraud Score',
+    type: 'decision',
+    inputCount: 68400,
+    outputCount: 62100,
+    droppedCount: 6300,
+    dropPct: 9.21,
+    avgLatencyMs: 65,
+    errorPct: 0.35,
+    ruleCount: 24,
+    championConversionPct: 90.79,
+    bestChallengerConversionPct: 93.10,
+    bestChallengerDeltaPct: 2.31,
+    bestChallengerId: 'chall-a',
+  },
+  {
+    id: 'node-7',
+    order: 7,
+    name: '7 Decision Node',
+    type: 'decision',
+    inputCount: 62100,
+    outputCount: 59800,
+    droppedCount: 2300,
+    dropPct: 3.70,
+    avgLatencyMs: 15,
+    errorPct: 0.04,
+    ruleCount: 6,
+    championConversionPct: 96.30,
+    bestChallengerConversionPct: 97.40,
+    bestChallengerDeltaPct: 1.10,
+    bestChallengerId: 'chall-a',
+  },
+  {
+    id: 'node-8',
+    order: 8,
+    name: '8 Final Processing',
+    type: 'service',
+    inputCount: 59800,
+    outputCount: 59450,
+    droppedCount: 350,
+    dropPct: 0.58,
+    avgLatencyMs: 35,
+    errorPct: 0.02,
+    ruleCount: 3,
+    championConversionPct: 99.42,
+    bestChallengerConversionPct: 99.80,
+    bestChallengerDeltaPct: 0.38,
+    bestChallengerId: 'chall-a',
   },
 ];
 
-export const FUNNEL_METRIC_SUMMARY: MetricSummaryItem[] = [
+// Champion + 5 Detailed Challengers (expandable to 20+)
+export const CHAMPION_MODEL = {
+  id: 'champion',
+  name: 'Champion (Production v1.2)',
+  version: 'v1.2',
+  color: '#3B82F6', // Blue
+  badgeBg: 'bg-blue-500/20',
+  badgeText: 'text-blue-400',
+  outputCount: 79350,
+  dropPct: 15.67,
+  latencyMs: 42,
+  errorPct: 0.20,
+};
+
+export const AVAILABLE_CANDIDATES: CandidateModel[] = [
+  { id: 'champion', name: 'Champion (Production v1.2)', version: 'v1.2', color: '#3B82F6', isChampion: true, dropRate: 15.67, outputCount: 79350, latencyMs: 42 },
+  { id: 'chall-a', name: 'Challenger A (Optimized XGBoost)', version: 'v2.4', color: '#10B981', isChampion: false, dropRate: 12.91, outputCount: 81950, latencyMs: 39 },
+  { id: 'chall-b', name: 'Challenger B (Low-Latency Flash)', version: 'v3.0', color: '#8B5CF6', isChampion: false, dropRate: 17.00, outputCount: 78100, latencyMs: 28 },
+  { id: 'chall-c', name: 'Challenger C (Strict Risk Guardian)', version: 'v3.1', color: '#F59E0B', isChampion: false, dropRate: 20.08, outputCount: 75200, latencyMs: 50 },
+  { id: 'chall-d', name: 'Challenger D (Experimental Hybrid)', version: 'v4.0', color: '#F43F5E', isChampion: false, dropRate: 12.43, outputCount: 82400, latencyMs: 36 },
+  { id: 'chall-e', name: 'Challenger E (Graph Neural Net)', version: 'v1.0-gNN', color: '#06B6D4', isChampion: false, dropRate: 14.13, outputCount: 80800, latencyMs: 60 },
+];
+
+export const CHALLENGER_MODELS: ChallengerModelData[] = [
   {
-    metric: 'Total Requests',
-    champion: '10',
-    challenger: '10',
-    difference: '0 (0.00%)',
-    isPositive: true,
+    id: 'chall-a',
+    name: 'Challenger A (Optimized XGBoost v2.4)',
+    version: 'v2.4',
+    color: '#10B981', // Emerald
+    badgeBg: 'bg-emerald-500/20',
+    badgeText: 'text-emerald-400',
+    outputCount: 81950,
+    outputDelta: 2600,
+    dropPct: 12.91,
+    latencyDeltaMs: -3,
+    errorDeltaPct: -0.10,
+    confidenceScore: 0.96,
+    winProbabilityPct: 94,
+    pValue: 0.004,
+    ciRange: '[+1.8%, +3.8%]',
+    sparklineData: [72, 75, 79, 82, 85, 87],
   },
   {
-    metric: 'Completed Requests',
-    champion: '6 (60.00%)',
-    challenger: '3 (30.00%)',
-    difference: '+30.00%',
-    isPositive: true,
+    id: 'chall-b',
+    name: 'Challenger B (Low-Latency Flash v3.0)',
+    version: 'v3.0',
+    color: '#8B5CF6', // Violet
+    badgeBg: 'bg-purple-500/20',
+    badgeText: 'text-purple-400',
+    outputCount: 78100,
+    outputDelta: -1250,
+    dropPct: 17.00,
+    latencyDeltaMs: -14,
+    errorDeltaPct: -0.05,
+    confidenceScore: 0.89,
+    winProbabilityPct: 62,
+    pValue: 0.082,
+    ciRange: '[-0.5%, +1.2%]',
+    sparklineData: [68, 70, 72, 74, 76, 78],
   },
   {
-    metric: 'Dropped Requests',
-    champion: '4 (40.00%)',
-    challenger: '7 (70.00%)',
-    difference: '-30.00%',
-    isPositive: false,
+    id: 'chall-c',
+    name: 'Challenger C (Strict Risk Guardian v3.1)',
+    version: 'v3.1',
+    color: '#F59E0B', // Amber
+    badgeBg: 'bg-amber-500/20',
+    badgeText: 'text-amber-400',
+    outputCount: 75200,
+    outputDelta: -4150,
+    dropPct: 20.08,
+    latencyDeltaMs: +8,
+    errorDeltaPct: -0.15,
+    confidenceScore: 0.94,
+    winProbabilityPct: 15,
+    pValue: 0.001,
+    ciRange: '[-5.2%, -2.1%]',
+    sparklineData: [85, 82, 78, 76, 75, 75],
   },
   {
-    metric: 'Total Executions',
-    champion: '20',
-    challenger: '20',
-    difference: '0 (0.00%)',
-    isPositive: true,
+    id: 'chall-d',
+    name: 'Challenger D (Experimental Hybrid v4.0)',
+    version: 'v4.0',
+    color: '#F43F5E', // Rose
+    badgeBg: 'bg-rose-500/20',
+    badgeText: 'text-rose-400',
+    outputCount: 82400,
+    outputDelta: 3050,
+    dropPct: 12.43,
+    latencyDeltaMs: -6,
+    errorDeltaPct: -0.08,
+    confidenceScore: 0.92,
+    winProbabilityPct: 89,
+    pValue: 0.012,
+    ciRange: '[+1.2%, +4.1%]',
+    sparklineData: [70, 74, 78, 81, 84, 86],
   },
   {
-    metric: 'Avg Response Time',
-    champion: '512ms',
-    challenger: '678ms',
-    difference: '-24.48%',
-    isPositive: true,
-  },
-  {
-    metric: 'Total Time Saved',
-    champion: '1.66s',
-    challenger: '1.23s',
-    difference: '+0.43s',
-    isPositive: true,
-  },
-  {
-    metric: 'Avg Confidence',
-    champion: '83.50%',
-    challenger: '74.21%',
-    difference: '+9.29%',
-    isPositive: true,
+    id: 'chall-e',
+    name: 'Challenger E (Graph Neural Net v1.0)',
+    version: 'v1.0-gNN',
+    color: '#06B6D4', // Cyan
+    badgeBg: 'bg-cyan-500/20',
+    badgeText: 'text-cyan-400',
+    outputCount: 80800,
+    outputDelta: 1450,
+    dropPct: 14.13,
+    latencyDeltaMs: +18,
+    errorDeltaPct: -0.18,
+    confidenceScore: 0.95,
+    winProbabilityPct: 78,
+    pValue: 0.035,
+    ciRange: '[+0.3%, +2.9%]',
+    sparklineData: [71, 73, 76, 79, 80, 81],
   },
 ];
 
-export const TOP_DROP_REASONS: DropReasonItem[] = [
+// Business Rules Impact at Risk Evaluation (Node 3)
+export const BUSINESS_RULE_IMPACTS: BusinessRuleImpact[] = [
   {
-    reason: 'High Risk Score',
-    champion: 2,
-    champion_pct: 20,
-    challenger: 4,
-    challenger_pct: 40,
-    total: 6,
-    total_pct: 54.55,
+    ruleId: 'RULE_14',
+    ruleName: 'High Device Risk Score (> 0.75)',
+    category: 'Device Intelligence',
+    championDrops: 4120,
+    bestChallengerDrops: 3010,
+    deltaDrops: -1110,
+    allChallengerDrops: { 'chall-a': 3010, 'chall-b': 3880, 'chall-c': 4550, 'chall-d': 2900, 'chall-e': 3400 },
   },
   {
-    reason: 'Data Validation Failed',
-    champion: 1,
-    champion_pct: 10,
-    challenger: 2,
-    challenger_pct: 20,
-    total: 3,
-    total_pct: 27.27,
+    ruleId: 'RULE_09',
+    ruleName: 'Transaction Velocity > 5 in 10m',
+    category: 'Velocity & Pattern',
+    championDrops: 2880,
+    bestChallengerDrops: 3400,
+    deltaDrops: 520,
+    allChallengerDrops: { 'chall-a': 3400, 'chall-b': 2710, 'chall-c': 1990, 'chall-d': 3500, 'chall-e': 2900 },
   },
   {
-    reason: 'Rule Condition Not Met',
-    champion: 1,
-    champion_pct: 10,
-    challenger: 1,
-    challenger_pct: 10,
-    total: 2,
-    total_pct: 18.18,
+    ruleId: 'RULE_22',
+    ruleName: 'IP Geo Mismatch vs Billing',
+    category: 'Geolocation',
+    championDrops: 2010,
+    bestChallengerDrops: 1980,
+    deltaDrops: -30,
+    allChallengerDrops: { 'chall-a': 1980, 'chall-b': 2050, 'chall-c': 2440, 'chall-d': 1870, 'chall-e': 1990 },
   },
   {
-    reason: 'Service Timeout',
-    champion: 0,
-    champion_pct: 0,
-    challenger: 0,
-    challenger_pct: 0,
-    total: 0,
-    total_pct: 0.0,
+    ruleId: 'RULE_05',
+    ruleName: 'Synthetic Identity Cluster match',
+    category: 'Identity Fraud',
+    championDrops: 1850,
+    bestChallengerDrops: 1420,
+    deltaDrops: -430,
+    allChallengerDrops: { 'chall-a': 1420, 'chall-b': 1790, 'chall-c': 2100, 'chall-d': 1380, 'chall-e': 1510 },
+  },
+  {
+    ruleId: 'RULE_31',
+    ruleName: 'Blacklisted Merchant Network',
+    category: 'Merchant Risk',
+    championDrops: 1450,
+    bestChallengerDrops: 1100,
+    deltaDrops: -350,
+    allChallengerDrops: { 'chall-a': 1100, 'chall-b': 1350, 'chall-c': 1680, 'chall-d': 1050, 'chall-e': 1220 },
   },
 ];
 
-export const TIME_SERIES_METRICS: TimeSeriesDataPoint[] = [
-  { date: 'Jul 25', champion_completion_rate: 55, challenger_completion_rate: 22, champion_requests: 6, challenger_requests: 4, champion_avg_rt: 520, challenger_avg_rt: 710 },
-  { date: 'Jul 26', champion_completion_rate: 58, challenger_completion_rate: 25, champion_requests: 7, challenger_requests: 4, champion_avg_rt: 490, challenger_avg_rt: 690 },
-  { date: 'Jul 27', champion_completion_rate: 68, challenger_completion_rate: 35, champion_requests: 8, challenger_requests: 5, champion_avg_rt: 510, challenger_avg_rt: 670 },
-  { date: 'Jul 28', champion_completion_rate: 62, challenger_completion_rate: 24, champion_requests: 9, challenger_requests: 5, champion_avg_rt: 530, challenger_avg_rt: 720 },
-  { date: 'Jul 29', champion_completion_rate: 70, challenger_completion_rate: 30, champion_requests: 12, challenger_requests: 5, champion_avg_rt: 500, challenger_avg_rt: 650 },
-  { date: 'Jul 30', champion_completion_rate: 75, challenger_completion_rate: 38, champion_requests: 13, challenger_requests: 6, champion_avg_rt: 505, challenger_avg_rt: 660 },
-  { date: 'Jul 31', champion_completion_rate: 78, challenger_completion_rate: 32, champion_requests: 14, challenger_requests: 6, champion_avg_rt: 495, challenger_avg_rt: 680 },
-  { date: 'Aug 1',  champion_completion_rate: 85, challenger_completion_rate: 40, champion_requests: 16, challenger_requests: 7, champion_avg_rt: 480, challenger_avg_rt: 640 },
+// Sample Request Journey Path Diffs
+export const REQUEST_DIFF_SAMPLES: RequestDiffSample[] = [
+  {
+    requestId: 'REQ-00921',
+    sessionId: 'SES-94021',
+    timestamp: 'Aug 1, 20:15:10',
+    winningChallengerId: 'chall-a',
+    championStatus: 'DROP',
+    challengerStatus: 'PASS',
+    championPath: 'S1 → S2 → RiskEval → DROP (RULE_14: High Device Risk)',
+    challengerPath: 'S1 → S2 → RiskEval → VelocityCheck → GeoAnalysis → Decision → PASS',
+    dropReason: 'High Device Risk threshold exceeded (0.82 > 0.75)',
+    confidenceDelta: +0.18,
+    latencyDeltaMs: -12,
+  },
+  {
+    requestId: 'REQ-00922',
+    sessionId: 'SES-94022',
+    timestamp: 'Aug 1, 20:14:02',
+    winningChallengerId: 'chall-a',
+    championStatus: 'PASS',
+    challengerStatus: 'PASS',
+    championPath: 'S1 → S2 → RiskEval → VelocityCheck → GeoAnalysis → Decision → PASS',
+    challengerPath: 'S1 → S2 → RiskEval → VelocityCheck → GeoAnalysis → Decision → PASS',
+    confidenceDelta: +0.05,
+    latencyDeltaMs: -5,
+  },
+  {
+    requestId: 'REQ-00923',
+    sessionId: 'SES-94023',
+    timestamp: 'Aug 1, 20:12:44',
+    winningChallengerId: 'chall-b',
+    championStatus: 'DROP',
+    challengerStatus: 'PASS',
+    championPath: 'S1 → S2 → RiskEval → DROP (RULE_09: Velocity > 5)',
+    challengerPath: 'S1 → S2 → RiskEval → VelocityCheck → GeoAnalysis → PASS',
+    dropReason: 'Velocity limit exceeded',
+    confidenceDelta: +0.22,
+    latencyDeltaMs: -18,
+  },
 ];
 
-export const MOCK_REQUEST_COMPARISON: RequestComparisonItem[] = [
+export const DYNAMIC_REQUESTS: DynamicRequestItem[] = [
   {
     id: 'req-1',
-    request_id: 'REQ-001',
+    request_id: 'REQ-00921',
     session_id: 'SES-94021',
-    timestamp: 'Aug 1, 10:30:15 AM',
-    champion_status: 'Completed',
-    challenger_status: 'Dropped',
-    challenger_drop_reason: 'High Risk Score',
-    champion_path: 'S1 → D1 → S2 → D2 → S3',
-    challenger_path: 'S1 → D1 → S2 (Dropped)',
-    champion_response_time: 456,
-    challenger_response_time: 712,
-    winner: 'Champion',
-    input_payload: {
-      user_id: 'USR-88219',
-      amount: 1450.00,
-      currency: 'USD',
-      merchant_category: 'Electronics',
-      device_trust_score: 0.94,
-      location: { country: 'US', ip: '192.168.1.1' }
+    timestamp: 'Aug 1, 20:15:10',
+    winnerCandidateId: 'chall-a',
+    results: {
+      champion: { status: 'Dropped', responseTime: 412 },
+      'chall-a': { status: 'Completed', responseTime: 388 },
+      'chall-b': { status: 'Completed', responseTime: 360 },
+      'chall-c': { status: 'Dropped', responseTime: 440 },
+      'chall-d': { status: 'Completed', responseTime: 375 },
+      'chall-e': { status: 'Completed', responseTime: 410 },
     },
-    champion_executions: [
-      { step_id: 'step-1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 45, input_payload: { raw: 'input' }, output_payload: { valid: true } },
-      { step_id: 'step-2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'completed', duration_ms: 110, input_payload: { valid: true }, output_payload: { riskScore: 0.18, decision: 'pass' } },
-      { step_id: 'step-3', node_id: 's2', node_name: 'Data Enrichment', node_type: 'service', status: 'completed', duration_ms: 180, input_payload: { user_id: 'USR-88219' }, output_payload: { enriched: true, userTier: 'VIP' } },
-      { step_id: 'step-4', node_id: 'd2', node_name: 'Fraud Check', node_type: 'decision', status: 'completed', duration_ms: 70, input_payload: { fraudFlag: false }, output_payload: { approved: true } },
-      { step_id: 'step-5', node_id: 's3', node_name: 'Final Processing', node_type: 'service', status: 'completed', duration_ms: 51, input_payload: { action: 'authorize' }, output_payload: { status: 'SUCCESS', transaction_id: 'TXN-99812' } },
-    ],
-    challenger_executions: [
-      { step_id: 'step-1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 95, input_payload: { raw: 'input' }, output_payload: { valid: true } },
-      { step_id: 'step-2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'completed', duration_ms: 240, input_payload: { valid: true }, output_payload: { riskScore: 0.82, decision: 'flag' } },
-      { step_id: 'step-3', node_id: 's2', node_name: 'Data Enrichment', node_type: 'service', status: 'dropped', duration_ms: 377, input_payload: { user_id: 'USR-88219' }, drop_reason: 'High Risk Score thresholds exceeded (0.82 > 0.75)' },
-    ],
   },
   {
     id: 'req-2',
-    request_id: 'REQ-002',
+    request_id: 'REQ-00922',
     session_id: 'SES-94022',
-    timestamp: 'Aug 1, 10:28:42 AM',
-    champion_status: 'Completed',
-    challenger_status: 'Completed',
-    champion_path: 'S1 → D1 → S2 → D2 → S3',
-    challenger_path: 'S1 → D1 → S2 → D2 → S3',
-    champion_response_time: 423,
-    challenger_response_time: 589,
-    winner: 'Champion',
-    input_payload: {
-      user_id: 'USR-77310',
-      amount: 230.50,
-      currency: 'USD',
-      merchant_category: 'Groceries',
-      device_trust_score: 0.99,
-      location: { country: 'US', ip: '10.0.0.12' }
+    timestamp: 'Aug 1, 20:14:02',
+    winnerCandidateId: 'chall-a',
+    results: {
+      champion: { status: 'Completed', responseTime: 390 },
+      'chall-a': { status: 'Completed', responseTime: 372 },
+      'chall-b': { status: 'Completed', responseTime: 350 },
+      'chall-c': { status: 'Completed', responseTime: 420 },
+      'chall-d': { status: 'Completed', responseTime: 368 },
+      'chall-e': { status: 'Completed', responseTime: 405 },
     },
-    champion_executions: [
-      { step_id: 'step-1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 38, input_payload: {}, output_payload: { valid: true } },
-      { step_id: 'step-2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'completed', duration_ms: 95, input_payload: {}, output_payload: { riskScore: 0.05 } },
-      { step_id: 'step-3', node_id: 's2', node_name: 'Data Enrichment', node_type: 'service', status: 'completed', duration_ms: 160, input_payload: {}, output_payload: { enriched: true } },
-      { step_id: 'step-4', node_id: 'd2', node_name: 'Fraud Check', node_type: 'decision', status: 'completed', duration_ms: 80, input_payload: {}, output_payload: { approved: true } },
-      { step_id: 'step-5', node_id: 's3', node_name: 'Final Processing', node_type: 'service', status: 'completed', duration_ms: 50, input_payload: {}, output_payload: { status: 'SUCCESS' } },
-    ],
-    challenger_executions: [
-      { step_id: 'step-1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 60, input_payload: {}, output_payload: { valid: true } },
-      { step_id: 'step-2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'completed', duration_ms: 180, input_payload: {}, output_payload: { riskScore: 0.09 } },
-      { step_id: 'step-3', node_id: 's2', node_name: 'Data Enrichment', node_type: 'service', status: 'completed', duration_ms: 190, input_payload: {}, output_payload: { enriched: true } },
-      { step_id: 'step-4', node_id: 'd2', node_name: 'Fraud Check', node_type: 'decision', status: 'completed', duration_ms: 99, input_payload: {}, output_payload: { approved: true } },
-      { step_id: 'step-5', node_id: 's3', node_name: 'Final Processing', node_type: 'service', status: 'completed', duration_ms: 60, input_payload: {}, output_payload: { status: 'SUCCESS' } },
-    ],
   },
   {
     id: 'req-3',
-    request_id: 'REQ-003',
+    request_id: 'REQ-00923',
     session_id: 'SES-94023',
-    timestamp: 'Aug 1, 10:27:33 AM',
-    champion_status: 'Dropped',
-    challenger_status: 'Dropped',
-    champion_drop_reason: 'Rule Condition Not Met',
-    challenger_drop_reason: 'High Risk Score',
-    champion_path: 'S1 → D1 (Dropped)',
-    challenger_path: 'S1 → D1 (Dropped)',
-    champion_response_time: 156,
-    challenger_response_time: 334,
-    winner: 'Challenger',
-    input_payload: {
-      user_id: 'USR-10293',
-      amount: 8900.00,
-      currency: 'EUR',
-      merchant_category: 'Crypto Exchange',
-      device_trust_score: 0.42,
-      location: { country: 'DE', ip: '82.165.1.5' }
+    timestamp: 'Aug 1, 20:12:44',
+    winnerCandidateId: 'chall-b',
+    results: {
+      champion: { status: 'Dropped', responseTime: 450 },
+      'chall-a': { status: 'Dropped', responseTime: 410 },
+      'chall-b': { status: 'Completed', responseTime: 340 },
+      'chall-c': { status: 'Dropped', responseTime: 480 },
+      'chall-d': { status: 'Completed', responseTime: 355 },
+      'chall-e': { status: 'Dropped', responseTime: 430 },
     },
-    champion_executions: [
-      { step_id: 'step-1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 40, input_payload: {}, output_payload: { valid: true } },
-      { step_id: 'step-2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'dropped', duration_ms: 116, input_payload: {}, drop_reason: 'Rule Condition Not Met: User limit exceeded' },
-    ],
-    challenger_executions: [
-      { step_id: 'step-1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 84, input_payload: {}, output_payload: { valid: true } },
-      { step_id: 'step-2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'dropped', duration_ms: 250, input_payload: {}, drop_reason: 'High Risk Score (0.91)' },
-    ],
+  },
+];
+
+export const AI_INSIGHTS: AIInsightItem[] = [
+  {
+    id: 'ins-1',
+    type: 'positive',
+    title: 'Challenger A Boosts Overall Yield by +2.8%',
+    description: 'Challenger A reduces false-positive fallout on RULE_14 (High Device Risk) by 1,110 requests without increasing fraudulent leakage.',
+    financialImpact: '+$1.2M Annual Approved Revenue',
+    recommendedAction: 'Promote Challenger A to Shadow Traffic (25% split)',
   },
   {
-    id: 'req-4',
-    request_id: 'REQ-004',
-    session_id: 'SES-94024',
-    timestamp: 'Aug 1, 10:26:11 AM',
-    champion_status: 'Completed',
-    challenger_status: 'Dropped',
-    challenger_drop_reason: 'Data Validation Failed',
-    champion_path: 'S1 → D1 → S2 → D2 → S3',
-    challenger_path: 'S1 → D1 → S2 (Dropped)',
-    champion_response_time: 512,
-    challenger_response_time: 701,
-    winner: 'Champion',
-    input_payload: {
-      user_id: 'USR-44129',
-      amount: 45.00,
-      currency: 'USD',
-      merchant_category: 'Streaming Service',
-      device_trust_score: 0.88,
-      location: { country: 'US', ip: '72.14.201.1' }
-    },
-    champion_executions: [
-      { step_id: 'step-1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 42, input_payload: {}, output_payload: { valid: true } },
-      { step_id: 'step-2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'completed', duration_ms: 120, input_payload: {}, output_payload: { riskScore: 0.12 } },
-      { step_id: 'step-3', node_id: 's2', node_name: 'Data Enrichment', node_type: 'service', status: 'completed', duration_ms: 210, input_payload: {}, output_payload: { enriched: true } },
-      { step_id: 'step-4', node_id: 'd2', node_name: 'Fraud Check', node_type: 'decision', status: 'completed', duration_ms: 80, input_payload: {}, output_payload: { approved: true } },
-      { step_id: 'step-5', node_id: 's3', node_name: 'Final Processing', node_type: 'service', status: 'completed', duration_ms: 60, input_payload: {}, output_payload: { status: 'SUCCESS' } },
-    ],
-    challenger_executions: [
-      { step_id: 'step-1', node_id: 's1', node_name: 'Request Validation', node_type: 'service', status: 'completed', duration_ms: 90, input_payload: {}, output_payload: { valid: true } },
-      { step_id: 'step-2', node_id: 'd1', node_name: 'Risk Evaluation', node_type: 'decision', status: 'completed', duration_ms: 211, input_payload: {}, output_payload: { riskScore: 0.15 } },
-      { step_id: 'step-3', node_id: 's2', node_name: 'Data Enrichment', node_type: 'service', status: 'dropped', duration_ms: 400, input_payload: {}, drop_reason: 'Data Validation Failed: Missing device token' },
-    ],
+    id: 'ins-2',
+    type: 'warning',
+    title: 'Challenger C Over-rejection Alert',
+    description: 'Challenger C causes a +12.4% increase in drops at Risk Evaluation, leading to severe conversion fallout.',
+    financialImpact: '-$840k Annual Lost Revenue',
+    recommendedAction: 'Deprecate Challenger C from active candidate benchmark',
   },
   {
-    id: 'req-5',
-    request_id: 'REQ-005',
-    session_id: 'SES-94025',
-    timestamp: 'Aug 1, 10:24:50 AM',
-    champion_status: 'Completed',
-    challenger_status: 'Completed',
-    champion_path: 'S1 → D1 → S2 → D2 → S3',
-    challenger_path: 'S1 → D1 → S2 → D2 → S3',
-    champion_response_time: 480,
-    challenger_response_time: 620,
-    winner: 'Champion',
-    input_payload: { user_id: 'USR-55102', amount: 310.00, currency: 'USD' },
-    champion_executions: [],
-    challenger_executions: [],
-  },
-  {
-    id: 'req-6',
-    request_id: 'REQ-006',
-    session_id: 'SES-94026',
-    timestamp: 'Aug 1, 10:22:15 AM',
-    champion_status: 'Dropped',
-    champion_drop_reason: 'High Risk Score',
-    challenger_status: 'Dropped',
-    challenger_drop_reason: 'High Risk Score',
-    champion_path: 'S1 → D1 (Dropped)',
-    challenger_path: 'S1 (Dropped)',
-    champion_response_time: 140,
-    challenger_response_time: 190,
-    winner: 'Champion',
-    input_payload: { user_id: 'USR-66291', amount: 12000.00, currency: 'USD' },
-    champion_executions: [],
-    challenger_executions: [],
-  },
-  {
-    id: 'req-7',
-    request_id: 'REQ-007',
-    session_id: 'SES-94027',
-    timestamp: 'Aug 1, 10:20:00 AM',
-    champion_status: 'Completed',
-    challenger_status: 'Dropped',
-    challenger_drop_reason: 'High Risk Score',
-    champion_path: 'S1 → D1 → S2 → D2 → S3',
-    challenger_path: 'S1 → D1 (Dropped)',
-    champion_response_time: 495,
-    challenger_response_time: 280,
-    winner: 'Champion',
-    input_payload: { user_id: 'USR-77182', amount: 670.00, currency: 'USD' },
-    champion_executions: [],
-    challenger_executions: [],
-  },
-  {
-    id: 'req-8',
-    request_id: 'REQ-008',
-    session_id: 'SES-94028',
-    timestamp: 'Aug 1, 10:18:30 AM',
-    champion_status: 'Completed',
-    challenger_status: 'Completed',
-    champion_path: 'S1 → D1 → S2 → D2 → S3',
-    challenger_path: 'S1 → D1 → S2 → D2 → S3',
-    champion_response_time: 410,
-    challenger_response_time: 540,
-    winner: 'Champion',
-    input_payload: { user_id: 'USR-88219', amount: 120.00, currency: 'USD' },
-    champion_executions: [],
-    challenger_executions: [],
-  },
-  {
-    id: 'req-9',
-    request_id: 'REQ-009',
-    session_id: 'SES-94029',
-    timestamp: 'Aug 1, 10:15:10 AM',
-    champion_status: 'Dropped',
-    champion_drop_reason: 'Data Validation Failed',
-    challenger_status: 'Dropped',
-    challenger_drop_reason: 'Data Validation Failed',
-    champion_path: 'S1 (Dropped)',
-    challenger_path: 'S1 (Dropped)',
-    champion_response_time: 98,
-    challenger_response_time: 145,
-    winner: 'Champion',
-    input_payload: { user_id: 'USR-99120', amount: 0.00, currency: 'USD' },
-    champion_executions: [],
-    challenger_executions: [],
-  },
-  {
-    id: 'req-10',
-    request_id: 'REQ-010',
-    session_id: 'SES-94030',
-    timestamp: 'Aug 1, 10:12:05 AM',
-    champion_status: 'Completed',
-    challenger_status: 'Dropped',
-    challenger_drop_reason: 'Fraud Check Threshold',
-    champion_path: 'S1 → D1 → S2 → D2 → S3',
-    challenger_path: 'S1 → D1 → S2 → D2 (Dropped)',
-    champion_response_time: 530,
-    challenger_response_time: 685,
-    winner: 'Champion',
-    input_payload: { user_id: 'USR-00129', amount: 2400.00, currency: 'USD' },
-    champion_executions: [],
-    challenger_executions: [],
+    id: 'ins-3',
+    type: 'recommendation',
+    title: 'RULE_09 Contributes 41% of Model Variance',
+    description: 'Velocity threshold in Challenger A causes a minor +520 drop shift. Tuning RULE_09 parameters will optimize Challenger A yield further.',
+    financialImpact: '+$350k Potential Recovery',
+    recommendedAction: 'Refine RULE_09 velocity window from 10m to 15m sliding window',
   },
 ];
