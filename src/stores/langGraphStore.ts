@@ -39,15 +39,23 @@ export interface WorkflowNodeData {
 
 export interface ParallelNodeData {
   label: string;
-  outputCount: number;
 }
 
 export interface MergeNodeData {
   label: string;
-  inputCount: number;
 }
 
-export type NodeData = ServiceNodeData | DecisionNodeData | LLMNodeData | FormNodeData | WorkflowNodeData | ParallelNodeData | MergeNodeData;
+export interface MapperNodeData {
+  label: string;
+  mapperConfig?: {
+    outputFormat: 'json' | 'xml';
+    sampleResponse: string;
+    template: string;
+    mappings?: Record<string, string>;
+  };
+}
+
+export type NodeData = ServiceNodeData | DecisionNodeData | LLMNodeData | FormNodeData | WorkflowNodeData | ParallelNodeData | MergeNodeData | MapperNodeData;
 
 export interface LangGraphEdge extends Edge {
   data?: {
@@ -84,6 +92,7 @@ interface LangGraphState {
   addWorkflowNode: (position: { x: number; y: number }) => string;
   addParallelNode: (position: { x: number; y: number }) => string;
   addMergeNode: (position: { x: number; y: number }) => string;
+  addMapperNode: (position: { x: number; y: number }) => string;
   updateNodeData: (nodeId: string, data: Partial<NodeData>) => void;
   deleteNode: (nodeId: string) => void;
   updateEdgeCondition: (edgeId: string, condition: string) => void;
@@ -229,7 +238,6 @@ export const useLangGraphStore = create<LangGraphState>((set, get) => ({
       position,
       data: {
         label: id,
-        outputCount: 2,
       },
     };
     set({ nodes: [...get().nodes, newNode], selectedNodeId: id });
@@ -244,7 +252,25 @@ export const useLangGraphStore = create<LangGraphState>((set, get) => ({
       position,
       data: {
         label: id,
-        inputCount: 2,
+      },
+    };
+    set({ nodes: [...get().nodes, newNode], selectedNodeId: id });
+    return id;
+  },
+
+  addMapperNode: (position) => {
+    const id = `mapper-${nodeIdCounter++}`;
+    const newNode: Node<MapperNodeData> = {
+      id,
+      type: 'mapperNode',
+      position,
+      data: {
+        label: `Response Mapper (${id})`,
+        mapperConfig: {
+          outputFormat: 'json',
+          sampleResponse: '{\n  "status": "SUCCESS",\n  "data": {}\n}',
+          template: '{\n  "status": "SUCCESS",\n  "data": {}\n}',
+        },
       },
     };
     set({ nodes: [...get().nodes, newNode], selectedNodeId: id });

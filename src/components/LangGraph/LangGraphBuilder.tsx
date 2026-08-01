@@ -10,9 +10,10 @@ import { FormNode } from './FormNode';
 import { WorkflowNode } from './WorkflowNode';
 import { ParallelNode } from './ParallelNode';
 import { MergeNode } from './MergeNode';
+import { MapperNode } from './MapperNode';
 import { CustomEdge } from './CustomEdge';
 import { Button } from '../ui/button';
-import { Settings, Trash2, GitBranch, Code, Save, Upload, Play, Maximize2, Minimize2, ArrowLeft, Workflow, X, Globe, Bot, FileText, RefreshCw, ExternalLink, Eye, Pencil, CheckCircle, XCircle, Loader2, Terminal, GitMerge } from 'lucide-react';
+import { Settings, Trash2, GitBranch, Code, Save, Upload, Play, Maximize2, Minimize2, ArrowLeft, Workflow, X, Globe, Bot, FileText, RefreshCw, ExternalLink, Eye, Pencil, CheckCircle, XCircle, Loader2, Terminal, GitMerge, Sparkles, Sliders, FileOutput } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { WorkflowExecuteModal } from './WorkflowExecuteModal';
 import { WorkflowExecutionWithForms } from './WorkflowExecutionWithForms';
@@ -21,6 +22,9 @@ import { DecisionConfigModal } from './DecisionConfigModal';
 import { FormBuilderModal } from './FormBuilderModal';
 import { FormPreviewModal } from './FormPreviewModal';
 import { WorkflowConfigModal } from './WorkflowConfigModal';
+import { ProgrammaticGeneratorModal } from './ProgrammaticGeneratorModal';
+import { WhatIfScenarioStudio } from './WhatIfScenarioStudio';
+import { ObjectMapperModal } from './ObjectMapperModal';
 
 const nodeTypes = {
   serviceNode: ServiceNode,
@@ -30,6 +34,7 @@ const nodeTypes = {
   workflowNode: WorkflowNode,
   parallelNode: ParallelNode,
   mergeNode: MergeNode,
+  mapperNode: MapperNode,
 };
 
 const edgeTypes = {
@@ -71,6 +76,9 @@ export const LangGraphBuilder: React.FC = () => {
   const [showFormBuilderModal, setShowFormBuilderModal] = useState(false);
   const [showFormPreviewModal, setShowFormPreviewModal] = useState(false);
   const [showWorkflowConfigModal, setShowWorkflowConfigModal] = useState(false);
+  const [showProgrammaticModal, setShowProgrammaticModal] = useState(false);
+  const [showWhatIfStudio, setShowWhatIfStudio] = useState(false);
+  const [showMapperConfigModal, setShowMapperConfigModal] = useState(false);
 
   const {
     nodes,
@@ -85,6 +93,7 @@ export const LangGraphBuilder: React.FC = () => {
     addWorkflowNode,
     addParallelNode,
     addMergeNode,
+    addMapperNode,
     clearCanvas,
     exportJSON,
     importJSON,
@@ -112,6 +121,17 @@ export const LangGraphBuilder: React.FC = () => {
       setInputJSON('{\n  "message": {}\n}');
     }
   }, [workflowId]);
+
+  useEffect(() => {
+    if (inputJSON && inputJSON.trim()) {
+      try {
+        const parsed = JSON.parse(inputJSON);
+        setInputs(parsed);
+      } catch {
+        // ignore invalid JSON
+      }
+    }
+  }, [inputJSON, setInputs]);
 
   useEffect(() => {
     if (selectedNode?.type === 'workflowNode') {
@@ -265,10 +285,14 @@ export const LangGraphBuilder: React.FC = () => {
           addMergeNode(position);
           toast.success('Merge node added');
           break;
+        case 'mapperNode':
+          addMapperNode(position);
+          toast.success('Object Mapper node added');
+          break;
       }
       setActiveTab('config');
     },
-    [reactFlowInstance, addServiceNode, addDecisionNode, addLLMNode, addFormNode, addWorkflowNode, addParallelNode, addMergeNode]
+    [reactFlowInstance, addServiceNode, addDecisionNode, addLLMNode, addFormNode, addWorkflowNode, addParallelNode, addMergeNode, addMapperNode]
   );
 
   const handleClearCanvas = () => {
@@ -555,97 +579,10 @@ export const LangGraphBuilder: React.FC = () => {
 
     switch (selectedNode.type) {
       case 'parallelNode':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Number of Outputs</label>
-              <p className="text-xs text-gray-400 mb-3">Set how many parallel branches this node fans out to (2–8).</p>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    const current = nodeData.outputCount ?? 2;
-                    if (current > 2) updateNodeData(selectedNode.id, { outputCount: current - 1 });
-                  }}
-                  className="w-8 h-8 rounded border border-gray-300 flex items-center justify-center text-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
-                  disabled={(nodeData.outputCount ?? 2) <= 2}
-                >
-                  −
-                </button>
-                <span className="w-8 text-center text-base font-semibold text-gray-800">{nodeData.outputCount ?? 2}</span>
-                <button
-                  onClick={() => {
-                    const current = nodeData.outputCount ?? 2;
-                    if (current < 8) updateNodeData(selectedNode.id, { outputCount: current + 1 });
-                  }}
-                  className="w-8 h-8 rounded border border-gray-300 flex items-center justify-center text-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
-                  disabled={(nodeData.outputCount ?? 2) >= 8}
-                >
-                  +
-                </button>
-              </div>
-              <div className="mt-3 flex gap-1.5 flex-wrap">
-                {[2, 3, 4, 5, 6, 7, 8].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => updateNodeData(selectedNode.id, { outputCount: n })}
-                    className={`px-3 py-1 text-xs rounded border transition-colors ${
-                      (nodeData.outputCount ?? 2) === n
-                        ? 'bg-amber-500 border-amber-500 text-white font-semibold'
-                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
       case 'mergeNode':
         return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Number of Inputs</label>
-              <p className="text-xs text-gray-400 mb-3">Set how many parallel branches this node collects from (2–8).</p>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    const current = nodeData.inputCount ?? 2;
-                    if (current > 2) updateNodeData(selectedNode.id, { inputCount: current - 1 });
-                  }}
-                  className="w-8 h-8 rounded border border-gray-300 flex items-center justify-center text-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
-                  disabled={(nodeData.inputCount ?? 2) <= 2}
-                >
-                  −
-                </button>
-                <span className="w-8 text-center text-base font-semibold text-gray-800">{nodeData.inputCount ?? 2}</span>
-                <button
-                  onClick={() => {
-                    const current = nodeData.inputCount ?? 2;
-                    if (current < 8) updateNodeData(selectedNode.id, { inputCount: current + 1 });
-                  }}
-                  className="w-8 h-8 rounded border border-gray-300 flex items-center justify-center text-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
-                  disabled={(nodeData.inputCount ?? 2) >= 8}
-                >
-                  +
-                </button>
-              </div>
-              <div className="mt-3 flex gap-1.5 flex-wrap">
-                {[2, 3, 4, 5, 6, 7, 8].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => updateNodeData(selectedNode.id, { inputCount: n })}
-                    className={`px-3 py-1 text-xs rounded border transition-colors ${
-                      (nodeData.inputCount ?? 2) === n
-                        ? 'bg-slate-600 border-slate-600 text-white font-semibold'
-                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="text-xs text-gray-500 text-center py-6">
+            This node has no additional configuration options.
           </div>
         );
 
@@ -939,6 +876,30 @@ export const LangGraphBuilder: React.FC = () => {
           </div>
         );
 
+      case 'mapperNode':
+        return (
+          <div className="space-y-4">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 shadow-sm">
+              <div className="text-xs font-bold text-slate-900 flex items-center justify-between">
+                <span>Response Object Mapper</span>
+                <span className="font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded text-[10px] uppercase font-semibold">
+                  {(nodeData.mapperConfig?.outputFormat || 'json')}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600">
+                Transform upstream node responses into the final JSON or XML payload.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowMapperConfigModal(true)}
+              className="w-full px-4 py-2.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm"
+            >
+              <FileOutput className="w-4 h-4 text-white" />
+              Configure Response Object Mapper
+            </button>
+          </div>
+        );
+
       default:
         return null;
     }
@@ -1169,6 +1130,22 @@ export const LangGraphBuilder: React.FC = () => {
             {!isViewMode && (
               <>
                 <button
+                  onClick={() => setShowProgrammaticModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold rounded shadow-sm transition-all mr-1"
+                  title="Programmatic SDK / Spec Generator (95% Automated)"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+                  SDK Generator
+                </button>
+                <button
+                  onClick={() => setShowWhatIfStudio(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-gray-950 font-bold text-xs rounded shadow-sm transition-all mr-1"
+                  title="What-If Real-time Scenario Analysis Studio"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  What-If Studio
+                </button>
+                <button
                   onClick={() => setShowConfigDrawer(true)}
                   className="p-2 hover:bg-gray-100 rounded transition-colors"
                   title="Configuration"
@@ -1284,6 +1261,14 @@ export const LangGraphBuilder: React.FC = () => {
                     >
                       <GitMerge className="w-4 h-4 text-gray-600" />
                       <span className="text-sm text-gray-700">Merge</span>
+                    </div>
+                    <div
+                      draggable
+                      onDragStart={(e) => onDragStart(e, 'mapperNode')}
+                      className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded cursor-grab active:cursor-grabbing transition-colors"
+                    >
+                      <FileOutput className="w-4 h-4 text-gray-600" />
+                      <span className="text-sm text-gray-700">Object Mapper</span>
                     </div>
                   </div>
                 </div>
@@ -1511,37 +1496,6 @@ export const LangGraphBuilder: React.FC = () => {
             retryConfig: { enabled: false, maxRetries: 3, retryDelay: 1000 },
           }}
           initialInputs={inputs}
-          currentNodeId={selectedNode.id}
-          allNodes={nodes as any}
-          allEdges={edges as any}
-          nodeExecutionStates={nodeExecutionStates as any}
-          onRunUpstreamNode={async (nodeId) => {
-            const targetNode = nodes.find(n => n.id === nodeId);
-            if (!targetNode) return;
-            setNodeExecutionState(nodeId, { status: 'running', logs: [`[${new Date().toISOString()}] Running node...`] });
-            try {
-              const nd = targetNode.data as any;
-              if (targetNode.type === 'serviceNode' && nd.url) {
-                const response = await fetch(nd.url, {
-                  method: nd.method || 'GET',
-                  headers: nd.config?.headers?.reduce((acc: any, h: any) => ({ ...acc, [h.key]: h.value }), {}) || {},
-                  body: nd.method !== 'GET' && nd.config?.requestBody ? nd.config.requestBody : undefined,
-                });
-                let result: any = await response.text();
-                try { result = JSON.parse(result); } catch {}
-                setNodeExecutionState(nodeId, {
-                  status: response.ok ? 'success' : 'failed',
-                  logs: [`[${new Date().toISOString()}] ${nd.method || 'GET'} ${nd.url}`, `[${new Date().toISOString()}] Status: ${response.status}`, typeof result === 'object' ? JSON.stringify(result, null, 2) : result],
-                  lastRun: new Date(),
-                });
-              } else {
-                await new Promise(r => setTimeout(r, 800));
-                setNodeExecutionState(nodeId, { status: 'success', logs: [`[${new Date().toISOString()}] Simulated execution`, `[${new Date().toISOString()}] Result: {"status":"ok"}`], lastRun: new Date() });
-              }
-            } catch (err: any) {
-              setNodeExecutionState(nodeId, { status: 'failed', logs: [`Error: ${err.message}`], lastRun: new Date() });
-            }
-          }}
         />
       )}
 
@@ -1588,37 +1542,28 @@ export const LangGraphBuilder: React.FC = () => {
             const name = (selectedNode.data as any).selectedWorkflowName;
             if (name) window.open(`/langgraph/builder/${encodeURIComponent(name)}?mode=view`, '_blank');
           }}
-          currentNodeId={selectedNode.id}
-          allNodes={nodes as any}
-          allEdges={edges as any}
-          nodeExecutionStates={nodeExecutionStates as any}
-          onRunUpstreamNode={async (nodeId) => {
-            const targetNode = nodes.find(n => n.id === nodeId);
-            if (!targetNode) return;
-            setNodeExecutionState(nodeId, { status: 'running', logs: [`[${new Date().toISOString()}] Running node...`] });
-            try {
-              const nd = targetNode.data as any;
-              if (targetNode.type === 'serviceNode' && nd.url) {
-                const response = await fetch(nd.url, {
-                  method: nd.method || 'GET',
-                  headers: nd.config?.headers?.reduce((acc: any, h: any) => ({ ...acc, [h.key]: h.value }), {}) || {},
-                  body: nd.method !== 'GET' && nd.config?.requestBody ? nd.config.requestBody : undefined,
-                });
-                let result: any = await response.text();
-                try { result = JSON.parse(result); } catch {}
-                setNodeExecutionState(nodeId, {
-                  status: response.ok ? 'success' : 'failed',
-                  logs: [`[${new Date().toISOString()}] ${nd.method || 'GET'} ${nd.url}`, `[${new Date().toISOString()}] Status: ${response.status}`, typeof result === 'object' ? JSON.stringify(result, null, 2) : result],
-                  lastRun: new Date(),
-                });
-              } else {
-                await new Promise(r => setTimeout(r, 800));
-                setNodeExecutionState(nodeId, { status: 'success', logs: [`[${new Date().toISOString()}] Simulated execution`, `[${new Date().toISOString()}] Result: {"status":"ok"}`], lastRun: new Date() });
-              }
-            } catch (err: any) {
-              setNodeExecutionState(nodeId, { status: 'failed', logs: [`Error: ${err.message}`], lastRun: new Date() });
-            }
-          }}
+        />
+      )}
+
+      <ProgrammaticGeneratorModal
+        isOpen={showProgrammaticModal}
+        onClose={() => setShowProgrammaticModal(false)}
+        onImportGraph={(json) => importJSON(json)}
+      />
+
+      <WhatIfScenarioStudio
+        isOpen={showWhatIfStudio}
+        onClose={() => setShowWhatIfStudio(false)}
+      />
+
+      {showMapperConfigModal && selectedNode && (
+        <ObjectMapperModal
+          isOpen={showMapperConfigModal}
+          onClose={() => setShowMapperConfigModal(false)}
+          nodeId={selectedNode.id}
+          nodeLabel={(selectedNode.data as any).label || selectedNode.id}
+          initialMapperConfig={(selectedNode.data as any).mapperConfig}
+          onSave={(mapperConfig) => updateNodeData(selectedNode.id, { mapperConfig } as any)}
         />
       )}
     </>

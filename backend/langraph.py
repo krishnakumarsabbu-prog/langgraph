@@ -835,6 +835,85 @@ def make_merge_node(
 
 
 # ==============================================================================
+# Node: Response Object Mapper Node
+# ==============================================================================
+
+def make_mapper_node(
+    node_data: Dict[str, Any],
+    execution_id: str,
+    parallel_id: Optional[str] = None,
+):
+    node_id = node_data["id"]
+    data_cfg = node_data.get("data", {})
+    node_label = data_cfg.get("label", node_id)
+    mapper_cfg = data_cfg.get("mapperConfig", {})
+
+    output_format = mapper_cfg.get("outputFormat", "json").lower()
+    raw_template = mapper_cfg.get("template") or mapper_cfg.get("sampleResponse") or "{}"
+
+    def run_fn(state: Dict[str, Any]):
+        start_time = dt.datetime.utcnow()
+
+        rendered = render_template(copy.deepcopy(raw_template), state)
+
+        final_response: Any = None
+        if output_format == "xml":
+            if isinstance(rendered, dict):
+                def dict_to_xml(d, root_tag="Response"):
+                    xml_parts = [f"<{root_tag}>"]
+                    for k, v in d.items():
+                        if isinstance(v, dict):
+                            xml_parts.append(dict_to_xml(v, k))
+                        else:
+                            xml_parts.append(f"<{k}>{v}</{k}>")
+                    xml_parts.append(f"</{root_tag}>")
+                    return "".join(xml_parts)
+                xml_body = dict_to_xml(rendered)
+            else:
+                xml_body = str(rendered)
+
+            if not xml_body.strip().startswith("<?xml"):
+                final_response = f'<?xml version="1.0" encoding="UTF-8"?>\n{xml_body}'
+            else:
+                final_response = xml_body
+        else:
+            if isinstance(rendered, str):
+                try:
+                    final_response = json.loads(rendered)
+                except Exception:
+                    final_response = {"response": rendered}
+            else:
+                final_response = rendered
+
+        exec_time = int((dt.datetime.utcnow() - start_time).total_seconds() * 1000)
+
+        save_node_execution(
+            execution_id, node_id, node_type="mapper", node_label=node_label,
+            status="completed",
+            request_data={"output_format": output_format, "template": raw_template},
+            response_data={"output_format": output_format, "result": final_response},
+            error_msg=None, exec_time=exec_time
+        )
+        update_service_metrics(node_id, success=True, exec_time=exec_time)
+
+        state[node_id] = {
+            "output_format": output_format,
+            "response": final_response,
+            "_metrics": {"last_exec_ms": exec_time, "success": True},
+        }
+        state["final_output"] = final_response
+        state["final_output_format"] = output_format
+
+        if parallel_id:
+            _mark_branch_completed(state, parallel_id, node_id)
+
+        logger.info("[mapper:%s] compiled %s response in %dms", node_label, output_format, exec_time)
+        return state
+
+    return run_fn
+
+
+# ==============================================================================
 # Node factory
 # (parallel / merge are registered separately in build_graph_from_json because
 #  they need topology context that is not available at factory-call time)
@@ -842,9 +921,15 @@ def make_merge_node(
 
 NODE_FACTORY = {
     "service": make_service_node,
+    "serviceNode": make_service_node,
     "decision": make_decision_node,
+    "decisionNode": make_decision_node,
     "form": make_form_node,
+    "formNode": make_form_node,
     "workflow": make_subworkflow_node,
+    "workflowNode": make_subworkflow_node,
+    "mapper": make_mapper_node,
+    "mapperNode": make_mapper_node,
 }
 
 

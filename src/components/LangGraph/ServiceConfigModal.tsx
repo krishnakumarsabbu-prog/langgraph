@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Trash2, Upload, Loader2, PanelLeft } from 'lucide-react';
+import { X, Plus, Trash2, Upload, Loader2, Sparkles, Layers, Code } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Tabs } from '../ui/tabs';
 import toast from 'react-hot-toast';
-import { StateContextPanel } from './StateContextPanel';
+import { VisualPayloadMapper } from './VisualPayloadMapper';
 
 interface ServiceConfigModalProps {
   isOpen: boolean;
@@ -12,11 +12,6 @@ interface ServiceConfigModalProps {
   onSave: (config: ServiceConfig) => void;
   initialConfig: ServiceConfig;
   initialInputs: Record<string, any>;
-  currentNodeId?: string;
-  allNodes?: Array<{ id: string; type?: string; data: any }>;
-  allEdges?: Array<{ source: string; target: string; data?: any }>;
-  nodeExecutionStates?: Record<string, { status: string; logs: string[]; lastRun?: Date }>;
-  onRunUpstreamNode?: (nodeId: string) => void;
 }
 
 export interface ServiceConfig {
@@ -56,20 +51,13 @@ export const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({
   onSave,
   initialConfig,
   initialInputs,
-  currentNodeId,
-  allNodes,
-  allEdges,
-  nodeExecutionStates,
-  onRunUpstreamNode,
 }) => {
   const [config, setConfig] = useState<ServiceConfig>(initialConfig);
   const [draggedField, setDraggedField] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'request' | 'headers' | 'auth' | 'tls' | 'advanced'>('request');
+  const [requestMode, setRequestMode] = useState<'visual' | 'raw'>('visual');
   const [uploadingCert, setUploadingCert] = useState(false);
   const [uploadingKey, setUploadingKey] = useState(false);
-  const [showStatePanel, setShowStatePanel] = useState(true);
-  const requestBodyRef = useRef<HTMLTextAreaElement>(null);
-  const [cursorPosition, setCursorPosition] = useState(0);
 
   useEffect(() => {
     if (isOpen) {
@@ -79,35 +67,29 @@ export const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleFieldInsert = (fieldPath: string) => {
-    const textarea = requestBodyRef.current;
-    if (!textarea) {
-      setConfig(prev => ({ ...prev, requestBody: (prev.requestBody || '') + fieldPath }));
-      return;
-    }
-    setActiveTab('request');
-    const start = textarea.selectionStart ?? cursorPosition;
-    const end = textarea.selectionEnd ?? cursorPosition;
-    const before = config.requestBody.substring(0, start);
-    const after = config.requestBody.substring(end);
-    const newBody = before + fieldPath + after;
-    setConfig(prev => ({ ...prev, requestBody: newBody }));
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + fieldPath.length, start + fieldPath.length);
-    }, 10);
-  };
-
   const getFieldPaths = (obj: any, prefix = 'input'): string[] => {
     let paths: string[] = [];
+    if (!obj || typeof obj !== 'object') return paths;
+
     for (const key in obj) {
       const newPath = `${prefix}.${key}`;
       paths.push(newPath);
-      if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-        paths = paths.concat(getFieldPaths(obj[key], newPath));
+
+      const val = obj[key];
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val)) {
+          val.forEach((item) => {
+            if (item && typeof item === 'object') {
+              const subPaths = getFieldPaths(item, newPath);
+              paths = paths.concat(subPaths);
+            }
+          });
+        } else {
+          paths = paths.concat(getFieldPaths(val, newPath));
+        }
       }
     }
-    return paths;
+    return Array.from(new Set(paths));
   };
 
   const fieldPaths = getFieldPaths(initialInputs);
@@ -237,89 +219,48 @@ export const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({
   };
 
   const modalContent = (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-stretch">
-      <div className="bg-white w-full flex flex-col shadow-2xl">
-
-        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-4">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900 leading-tight">Configure Service Request</h2>
-              <p className="text-xs text-gray-500">Map input fields and configure HTTP request settings</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowStatePanel(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                showStatePanel
-                  ? 'bg-blue-50 border-blue-200 text-blue-700'
-                  : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-              }`}
-              title="Toggle state context panel"
-            >
-              <PanelLeft className="w-3.5 h-3.5" />
-              State Context
-            </button>
-            <button
-              onClick={onClose}
-              className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
+    <div className="fixed inset-0 bg-black bg-opacity-70 z-[9999]">
+      <div className="bg-white w-full h-full flex flex-col">
+        <div className="bg-white border-b border-gray-300 px-8 py-6 flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900">Configure Service Request</h2>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-gray-100 rounded transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-600" />
+          </button>
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-
-          {showStatePanel && currentNodeId && allNodes && allEdges && (
-            <StateContextPanel
-              currentNodeId={currentNodeId}
-              nodes={allNodes}
-              edges={allEdges}
-              inputs={initialInputs}
-              nodeExecutionStates={nodeExecutionStates || {}}
-              onRunUpstreamNode={onRunUpstreamNode}
-              onFieldInsert={handleFieldInsert}
-            />
-          )}
-
-          {showStatePanel && !currentNodeId && (
-            <div className="w-72 border-r border-gray-200 p-6 overflow-y-auto bg-gray-50">
-              <h3 className="text-sm font-bold text-gray-800 mb-3">Available Fields</h3>
-              <p className="text-xs text-gray-500 mb-4">Drag fields to insert references</p>
-              <div className="space-y-2">
-                {fieldPaths.map((field) => (
-                  <div
-                    key={field}
-                    draggable
-                    onDragStart={() => handleDragStart(field)}
-                    onDragEnd={handleDragEnd}
-                    className="bg-white border border-gray-200 rounded-md px-3 py-2 text-xs font-mono cursor-move hover:bg-gray-50 hover:border-gray-400 hover:shadow-sm transition-all"
-                  >
-                    {`{${field}}`}
-                  </div>
-                ))}
-              </div>
+          <div className="w-1/4 border-r border-gray-200 p-6 overflow-y-auto bg-gray-50/60">
+            <h3 className="text-base font-bold text-gray-900 mb-1">Available Fields</h3>
+            <p className="text-xs text-gray-500 mb-5">Drag fields to the inputs on the right</p>
+            <div className="space-y-2.5">
+              {fieldPaths.map((field) => (
+                <div
+                  key={field}
+                  draggable
+                  onDragStart={() => handleDragStart(field)}
+                  onDragEnd={handleDragEnd}
+                  title={field}
+                  className="bg-white border border-gray-200 hover:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-gray-800 cursor-move hover:bg-amber-50/50 transition-all shadow-sm truncate w-full block"
+                >
+                  {field}
+                </div>
+              ))}
             </div>
-          )}
+          </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-5">
-            <div className="flex gap-1 mb-6 border-b border-gray-200">
+          <div className="flex-1 p-6 overflow-y-auto">
+            <div className="flex gap-2 mb-6 border-b border-gray-200">
               {(['request', 'headers', 'auth', 'tls', 'advanced'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`px-4 py-2 font-semibold text-sm capitalize transition-colors ${
                     activeTab === tab
-                      ? 'text-gray-900 border-b-2 border-gray-900'
-                      : 'text-gray-400 hover:text-gray-700'
+                      ? 'text-gray-900 border-b-2 border-gray-700'
+                      : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
                   {tab}
@@ -328,65 +269,62 @@ export const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({
             </div>
 
             {activeTab === 'request' && (
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-bold text-gray-800 mb-1">Request Body</h3>
-                  <p className="text-xs text-gray-500">
-                    Click <strong>Insert</strong> on any field in the left panel, or drop fields here.
-                    Use <code className="bg-gray-100 px-1 rounded font-mono text-xs">{'{input.field}'}</code> syntax.
-                  </p>
-                </div>
-
-                {config.requestBody && (() => {
-                  const refs = Array.from(config.requestBody.matchAll(/\{([^}]+)\}/g)).map(m => m[1]);
-                  const invalid = refs.filter(r => {
-                    if (!r.startsWith('input.')) return false;
-                    const path = r.replace(/^input\./, '');
-                    const parts = path.split('.');
-                    let cur: any = initialInputs;
-                    for (const part of parts) {
-                      if (cur === undefined || cur === null || typeof cur !== 'object') return true;
-                      cur = cur[part];
-                    }
-                    return false;
-                  });
-                  if (invalid.length === 0) return null;
-                  return (
-                    <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      <div>
-                        <p className="text-xs font-semibold text-amber-800 mb-1">Unresolved field references</p>
-                        <div className="flex flex-wrap gap-1">
-                          {invalid.map(r => (
-                            <code key={r} className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-mono">{`{${r}}`}</code>
-                          ))}
-                        </div>
-                        <p className="text-xs text-amber-600 mt-1">Run upstream nodes to populate state, or check field paths.</p>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                <div className="relative">
-                  <textarea
-                    ref={requestBodyRef}
-                    value={config.requestBody}
-                    onChange={(e) => setConfig({ ...config, requestBody: e.target.value })}
-                    onDrop={(e) => handleDrop(e, 'requestBody')}
-                    onDragOver={handleDragOver}
-                    onSelect={(e) => setCursorPosition((e.target as HTMLTextAreaElement).selectionStart)}
-                    onClick={(e) => setCursorPosition((e.target as HTMLTextAreaElement).selectionStart)}
-                    onKeyUp={(e) => setCursorPosition((e.target as HTMLTextAreaElement).selectionStart)}
-                    className="w-full h-72 px-4 py-3 text-sm font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 bg-gray-50 hover:bg-white transition-colors resize-none leading-relaxed"
-                    placeholder={'{\n  "key": "{input.field.name}",\n  "value": "static value"\n}'}
-                    spellCheck={false}
-                  />
-                  <div className="absolute bottom-2 right-3 text-xs text-gray-300 pointer-events-none">
-                    Drop fields here
+              <div className="space-y-6">
+                {/* Request Mode Switcher */}
+                <div className="flex items-center justify-between bg-gray-100 p-1.5 rounded-xl border border-gray-300">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRequestMode('visual')}
+                      className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-all ${
+                        requestMode === 'visual'
+                          ? 'bg-gray-900 text-white shadow-md'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      <Layers className="w-4 h-4 text-amber-400" />
+                      Visual Nested Field Mapper (Drag & Drop)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRequestMode('raw')}
+                      className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-all ${
+                        requestMode === 'raw'
+                          ? 'bg-gray-900 text-white shadow-md'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      <Code className="w-4 h-4 text-blue-400" />
+                      Raw JSON Textarea
+                    </button>
                   </div>
+                  <span className="text-xs text-gray-500 font-mono px-3">
+                    Mode: {requestMode === 'visual' ? 'Interactive Visual Tree' : 'Raw Text'}
+                  </span>
                 </div>
+
+                {requestMode === 'visual' ? (
+                  <VisualPayloadMapper
+                    initialRequestBody={config.requestBody}
+                    onChange={(newJson) => setConfig({ ...config, requestBody: newJson })}
+                    initialInputs={initialInputs}
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-bold text-gray-800">Raw Request Body JSON</h3>
+                    <p className="text-sm text-gray-600">
+                      Drop fields here or type manually. Use single braces {'{'} and {'}'} to wrap field references.
+                    </p>
+                    <textarea
+                      value={config.requestBody}
+                      onChange={(e) => setConfig({ ...config, requestBody: e.target.value })}
+                      onDrop={(e) => handleDrop(e, 'requestBody')}
+                      onDragOver={handleDragOver}
+                      className="w-full h-96 px-6 py-4 text-base font-mono border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white resize-none"
+                      placeholder='{\n  "key": "{input.field.name}",\n  "value": "static value"\n}'
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -848,13 +786,13 @@ export const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({
           </div>
         </div>
 
-        <div className="border-t border-gray-100 px-6 py-4 flex items-center justify-end gap-3 bg-gray-50">
-          <Button variant="outline" onClick={onClose} className="px-5 py-2 text-sm">
+        <div className="border-t border-gray-200 px-8 py-6 flex justify-end gap-4">
+          <Button variant="outline" onClick={onClose} className="px-6 py-3 text-base">
             Cancel
           </Button>
           <Button
             onClick={handleSave}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 text-sm font-semibold"
+            className="bg-gray-700 hover:bg-gray-800 text-white px-8 py-3 text-base"
           >
             Save Configuration
           </Button>
